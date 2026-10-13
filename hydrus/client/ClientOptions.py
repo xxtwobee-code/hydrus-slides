@@ -488,6 +488,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         
         self._dictionary[ 'integers' ] = {
             'notebook_tab_alignment' : CC.DIRECTION_UP,
+            'slideshow_bookmark_start_mode' : 0, # 0 = off, 1 = first bookmark, 2 = random bookmark
             'video_buffer_size' : 96 * 1024 * 1024,
             'related_tags_search_1_duration_ms' : 250,
             'related_tags_search_2_duration_ms' : 2000,
@@ -670,6 +671,8 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
             'slideshow_short_duration_loop_seconds' : 10,
             'slideshow_short_duration_cutoff_percentage' : 75,
             'slideshow_long_duration_overspill_percentage' : 50,
+            'slideshow_duration_media_max_play_seconds' : None,
+            'slideshow_random_start_min_duration_seconds' : None,
             'num_to_show_in_ac_dropdown_children_tab' : 40,
             'number_of_unselected_medias_to_present_tags_for' : 4096,
             'export_path_character_limit' : None,
@@ -709,6 +712,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         
         self._dictionary[ 'strings' ] = {
             'app_display_name' : 'hydrus client',
+            'slideshow_bookmarks_note_name' : 'bookmarks',
             'namespace_connector' : ':',
             'sibling_connector' : ' \u2192 ',
             'or_connector' : ' OR ',

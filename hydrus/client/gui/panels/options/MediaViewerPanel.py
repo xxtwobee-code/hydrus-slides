@@ -87,6 +87,24 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         tt = '(Ensures slightly longer videos will not get cut off right at the end) A slideshow will delay moving on if playing the current duration-having media would stretch the overall slideshow period less than this amount.'
         self._slideshow_long_duration_overspill_percentage.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
         
+        self._slideshow_duration_media_max_play_seconds = ClientGUICommon.NoneableSpinCtrl( slideshow_panel, 120, none_phrase = 'no cap', min = 1, max = 86400, unit = 's' )
+        tt = 'A slideshow will always move on from a video or animation (gif, apng, animated webp, etc...) after it has been on screen this long, no matter how long the file is. This overrides "always play media once through" and the long-media delay above.'
+        self._slideshow_duration_media_max_play_seconds.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_random_start_min_duration_seconds = ClientGUICommon.NoneableSpinCtrl( slideshow_panel, 300, none_phrase = 'always start at the beginning', min = 1, max = 86400, unit = 's' )
+        tt = 'During a slideshow, a video or animation at least this long will start at a random point. If the max play time cap above is set, the random point is chosen so the whole capped window fits before the end of the file. Bookmarks, if used, take priority over this.'
+        self._slideshow_random_start_min_duration_seconds.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_bookmark_start_mode = ClientGUICommon.BetterChoice( slideshow_panel )
+        self._slideshow_bookmark_start_mode.addItem( 'do not use bookmarks', 0 )
+        self._slideshow_bookmark_start_mode.addItem( 'start at the first bookmark', 1 )
+        self._slideshow_bookmark_start_mode.addItem( 'start at a random bookmark', 2 )
+        tt = 'Bookmarks are timestamps stored in a file note (name set below), like "0:45, 3:10, 1:02:30". You can add the current position with the "bookmark current video position" shortcut in the media viewer. Files with no bookmarks fall back to the random-start rule.'
+        self._slideshow_bookmark_start_mode.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_bookmarks_note_name = QW.QLineEdit( slideshow_panel )
+        self._slideshow_bookmarks_note_name.setToolTip( ClientGUIFunctions.WrapToolTip( 'The name of the file note that holds bookmark timestamps.' ) )
+        
         #
         
         self._focus_media_tab_on_viewer_close_if_possible.setChecked( self._new_options.GetBoolean( 'focus_media_tab_on_viewer_close_if_possible' ) )
@@ -117,6 +135,10 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._slideshow_short_duration_loop_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_short_duration_loop_percentage' ) )
         self._slideshow_short_duration_cutoff_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_short_duration_cutoff_percentage' ) )
         self._slideshow_long_duration_overspill_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_long_duration_overspill_percentage' ) )
+        self._slideshow_duration_media_max_play_seconds.SetValue( self._new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' ) )
+        self._slideshow_random_start_min_duration_seconds.SetValue( self._new_options.GetNoneableInteger( 'slideshow_random_start_min_duration_seconds' ) )
+        self._slideshow_bookmark_start_mode.SetValue( self._new_options.GetInteger( 'slideshow_bookmark_start_mode' ) )
+        self._slideshow_bookmarks_note_name.setText( self._new_options.GetString( 'slideshow_bookmarks_note_name' ) )
         
         #
         
@@ -162,6 +184,10 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         rows.append( ( 'Slideshow short-media skip percentage threshold:', self._slideshow_short_duration_loop_percentage ) )
         rows.append( ( 'Slideshow shorter-media cutoff percentage threshold:', self._slideshow_short_duration_cutoff_percentage ) )
         rows.append( ( 'Slideshow long-media allowed delay percentage threshold:', self._slideshow_long_duration_overspill_percentage ) )
+        rows.append( ( 'Slideshow max play time for videos/animations:', self._slideshow_duration_media_max_play_seconds ) )
+        rows.append( ( 'Slideshow random start point for media at least this long:', self._slideshow_random_start_min_duration_seconds ) )
+        rows.append( ( 'Slideshow bookmark start point:', self._slideshow_bookmark_start_mode ) )
+        rows.append( ( 'Slideshow bookmarks note name:', self._slideshow_bookmarks_note_name ) )
         
         slideshow_gridbox = ClientGUICommon.WrapInGrid( slideshow_panel, rows )
         
@@ -244,5 +270,15 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._new_options.SetNoneableInteger( 'slideshow_short_duration_loop_seconds', self._slideshow_short_duration_loop_seconds.GetValue() )
         self._new_options.SetNoneableInteger( 'slideshow_short_duration_cutoff_percentage', self._slideshow_short_duration_cutoff_percentage.GetValue() )
         self._new_options.SetNoneableInteger( 'slideshow_long_duration_overspill_percentage', self._slideshow_long_duration_overspill_percentage.GetValue() )
+        self._new_options.SetNoneableInteger( 'slideshow_duration_media_max_play_seconds', self._slideshow_duration_media_max_play_seconds.GetValue() )
+        self._new_options.SetNoneableInteger( 'slideshow_random_start_min_duration_seconds', self._slideshow_random_start_min_duration_seconds.GetValue() )
+        self._new_options.SetInteger( 'slideshow_bookmark_start_mode', self._slideshow_bookmark_start_mode.GetValue() )
+        
+        note_name = self._slideshow_bookmarks_note_name.text().strip()
+        
+        if note_name != '':
+            
+            self._new_options.SetString( 'slideshow_bookmarks_note_name', note_name )
+            
         
     

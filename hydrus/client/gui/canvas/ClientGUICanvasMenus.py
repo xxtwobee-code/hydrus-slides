@@ -65,3 +65,8 @@ def AppendSlideshowMenu( win: CAC.ApplicationCommandProcessorMixin, menu: QW.QMe
     ClientGUIMenus.AppendMenuCheckItem( slideshow_menu, 'this slideshow plays media once through', 'Override the \'always play media once through\' behaviour for this window only. New windows will still use the global option.', slideshow_is_playing_once_through, win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_FLIP_THISWINDOW_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH ) )
     ClientGUIMenus.AppendMenuCheckItem( slideshow_menu, 'always play media once through', 'Check this to always play the complete media duration at least once before moving on.', CG.client_controller.new_options.GetBoolean( 'slideshow_always_play_duration_media_once_through' ), win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_FLIP_GLOBAL_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH ) )
     
+    # personal edit
+    ClientGUIMenus.AppendSeparator( slideshow_menu )
+    
+    ClientGUIMenus.AppendMenuItem( slideshow_menu, 'bookmark current video position', 'Add the current playback position of this video/animation to its bookmarks note, for slideshow start points.', win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION ) )
+    

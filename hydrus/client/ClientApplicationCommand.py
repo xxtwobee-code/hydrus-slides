@@ -219,6 +219,9 @@ SIMPLE_PER_PLAYER_AUDIO_UNMUTE = 206
 SIMPLE_WINDOW_ALWAYS_ON_TOP_WHILE_PLAYING_FLIP = 207
 SIMPLE_SHOW_DETAILED_EMBEDDED_FILE_METADATA_WINDOW = 208
 
+# personal edit: high number so it will not collide with future official actions
+SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION = 9001
+
 REARRANGE_THUMBNAILS_TYPE_FIXED = 0
 REARRANGE_THUMBNAILS_TYPE_COMMAND = 1
 
@@ -478,6 +481,7 @@ simple_enum_to_str_lookup = {
     SIMPLE_FLIP_THISWINDOW_SLIDESHOW_SHUFFLE : 'slideshow shuffle: override/flip for current window',
     SIMPLE_FLIP_GLOBAL_SLIDESHOW_SHUFFLE : 'slideshow shuffle: flip global option (and apply to current window)',
     SIMPLE_FLIP_THISWINDOW_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH: 'always play media once through: override/flip for current window',
+    SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION: 'bookmark current video position (for slideshow start points)',
     SIMPLE_FLIP_GLOBAL_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH: 'always play media once through: flip global option (and apply to current window)',
     SIMPLE_WINDOW_ALWAYS_ON_TOP_WHILE_PLAYING_FLIP : 'window "always on top while playing": flip on/off',
     SIMPLE_SHOW_DETAILED_EMBEDDED_FILE_METADATA_WINDOW : 'open detailed embedded file metadata window',

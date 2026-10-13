@@ -19,6 +19,7 @@ from hydrus.client import ClientData
 from hydrus.client import ClientGlobals as CG
 from hydrus.client import ClientLocation
 from hydrus.client import ClientServices
+from hydrus.client import ClientSlideshowStartPoints
 from hydrus.client import ClientThreading
 from hydrus.client.gui import ClientGUICore as CGC
 from hydrus.client.gui import ClientGUIDialogsManage
@@ -1641,7 +1642,9 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
                         maintain_pan = self._new_options.GetBoolean( 'media_viewer_lock_current_pan' )
                         
                     
-                    self._media_container.SetMedia( self._current_media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused )
+                    start_position_ms = self._GetSlideshowStartPositionMS( self._current_media )
+                    
+                    self._media_container.SetMedia( self._current_media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused, start_position_ms = start_position_ms )
                     
                 else:
                     
@@ -1663,6 +1666,49 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             CG.client_controller.pub( 'canvas_new_index_string', self._canvas_key, self._GetIndexString() )
             
             self.update()
+            
+        
+    
+    def _GetSlideshowStartPositionMS( self, media ):
+        
+        # personal edit: bookmark/random start points for videos and animations in a running slideshow
+        
+        try:
+            
+            if not self.SlideshowIsRunning():
+                
+                return None
+                
+            
+            if media is None or not media.HasDuration():
+                
+                return None
+                
+            
+            new_options = CG.client_controller.new_options
+            
+            bookmark_mode = new_options.GetInteger( 'slideshow_bookmark_start_mode' )
+            random_start_min_duration_s = new_options.GetNoneableInteger( 'slideshow_random_start_min_duration_seconds' )
+            max_play_s = new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' )
+            
+            bookmarks_ms = []
+            
+            if bookmark_mode != ClientSlideshowStartPoints.BOOKMARK_MODE_OFF:
+                
+                note_name = new_options.GetString( 'slideshow_bookmarks_note_name' )
+                
+                names_to_notes = media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+                
+                bookmarks_ms = ClientSlideshowStartPoints.ParseBookmarksMS( names_to_notes.get( note_name, None ) )
+                
+            
+            return ClientSlideshowStartPoints.ChooseStartPositionMS( media.GetDurationMS(), bookmarks_ms, bookmark_mode, random_start_min_duration_s, max_play_s )
+            
+        except Exception as e:
+            
+            HydrusData.PrintException( e )
+            
+            return None
             
         
     
@@ -4400,11 +4446,65 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                 # ok, if we have a long overspill video, we have now moved to the earliest valid time to switch
                 
             
+            # personal edit: hard cap on how long any video/animation stays up
+            max_play_seconds = new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' )
+            
+            if max_play_seconds is not None:
+                
+                current_period = self._normal_slideshow_period if self._special_slideshow_period_for_current_media is None else self._special_slideshow_period_for_current_media
+                
+                if current_period > max_play_seconds:
+                    
+                    self._special_slideshow_period_for_current_media = max_play_seconds
+                    
+                    stop_after_one_play = False
+                    
+                
+            
             if stop_after_one_play:
                 
                 self._media_container.StopForSlideshow( True )
                 
             
+        
+    
+    def _BookmarkCurrentMediaPosition( self ):
+        
+        # personal edit: write the current playback position into the bookmarks note
+        
+        if self._current_media is None or not self._current_media.HasDuration():
+            
+            return
+            
+        
+        timestamp_ms = self._media_container.GetCurrentTimestampMS()
+        
+        if timestamp_ms is None:
+            
+            return
+            
+        
+        note_name = CG.client_controller.new_options.GetString( 'slideshow_bookmarks_note_name' )
+        
+        names_to_notes = self._current_media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+        
+        new_note = ClientSlideshowStartPoints.AddBookmarkToText( names_to_notes.get( note_name, None ), timestamp_ms )
+        
+        hash = self._current_media.GetHash()
+        
+        content_updates = [ ClientContentUpdates.ContentUpdate( HC.CONTENT_TYPE_NOTES, HC.CONTENT_UPDATE_SET, ( hash, note_name, new_note ) ) ]
+        
+        content_update_package = ClientContentUpdates.ContentUpdatePackage.STATICCreateFromContentUpdates( CC.LOCAL_NOTES_SERVICE_KEY, content_updates )
+        
+        CG.client_controller.Write( 'content_updates', content_update_package )
+        
+        job_status = ClientThreading.JobStatus()
+        
+        job_status.SetStatusText( f'Bookmarked {ClientSlideshowStartPoints.FormatTimestampMS( timestamp_ms )}' )
+        
+        CG.client_controller.pub( 'message', job_status )
+        
+        job_status.FinishAndDismiss( 3 )
         
     
     def _DoSlideshowWork( self ):
@@ -4427,7 +4527,12 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                     
                     if not self._media_container.HasPlayedOnceThrough():
                         
-                        return
+                        # personal edit: the max play time cap beats 'play once through'
+                        max_play_seconds = CG.client_controller.new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' )
+                        
+                        if max_play_seconds is None or not HydrusTime.TimeHasPassedFloat( self._last_slideshow_switch_time + max_play_seconds ):
+                            
+                            return
                         
                     
                 
@@ -4613,6 +4718,10 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
             elif action == CAC.SIMPLE_FLIP_GLOBAL_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH:
                 
                 self._slideshow_is_playing_once_through = CG.client_controller.new_options.FlipBoolean( 'slideshow_always_play_duration_media_once_through' )
+                
+            elif action == CAC.SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION:
+                
+                self._BookmarkCurrentMediaPosition()
                 
             elif action == CAC.SIMPLE_SHOW_MENU:
                 

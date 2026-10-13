@@ -167,6 +167,10 @@ class QtMediaPlayer( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         
         self._media_player.metaDataChanged.connect( self.NotifyQMetaDataChanged )
         
+        # personal edit: slideshow start point, applied once the media is loaded
+        self._pending_start_position_ms = None
+        self._media_player.mediaStatusChanged.connect( self._NotifyMediaStatusChangedForStartPosition )
+        
         self._my_audio_output: QM.QAudioOutput | None = None
         
         self._SetAudioDeviceFromOptions()
@@ -533,6 +537,27 @@ class QtMediaPlayer( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         return self._playthrough_count > 0
         
     
+    def _NotifyMediaStatusChangedForStartPosition( self, status ):
+        
+        if self._pending_start_position_ms is None:
+            
+            return
+            
+        
+        if status in ( QM.QMediaPlayer.MediaStatus.LoadedMedia, QM.QMediaPlayer.MediaStatus.BufferedMedia ):
+            
+            position_ms = self._pending_start_position_ms
+            
+            self._pending_start_position_ms = None
+            
+            self._media_player.setPosition( int( position_ms ) )
+            
+        elif status == QM.QMediaPlayer.MediaStatus.InvalidMedia:
+            
+            self._pending_start_position_ms = None
+            
+        
+    
     def InstallMouseMoveCatcher( self, event_filter: QC.QObject ):
         
         self._my_graphics_view.viewport().setMouseTracking( True )
@@ -685,7 +710,7 @@ class QtMediaPlayer( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self._background_colour_generator = background_colour_generator
         
     
-    def SetMedia( self, media: ClientMediaSingle.MediaSingle, start_paused = False ):
+    def SetMedia( self, media: ClientMediaSingle.MediaSingle, start_paused = False, start_position_ms = None ):
         
         if media == self._media:
             
@@ -695,6 +720,8 @@ class QtMediaPlayer( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self.ClearMedia()
         
         self._media = media
+        
+        self._pending_start_position_ms = start_position_ms if ( start_position_ms is not None and start_position_ms > 0 ) else None
         
         self._UpdateBackgroundBrush()
         

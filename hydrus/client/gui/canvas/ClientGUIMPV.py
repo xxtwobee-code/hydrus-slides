@@ -806,6 +806,10 @@ class MPVWidget( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self._number_of_restarts_this_second = 0
         self._current_seek_to_start_count = 0
         
+        # personal edit: slideshow start point, applied once the file header is loaded
+        self._pending_start_s = None
+        self._pending_start_paused = False
+        
         self._InitialiseMPVCallbacks()
         
         self.destroyed.connect( self._player.terminate )
@@ -931,6 +935,37 @@ class MPVWidget( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             
         
     
+    def _ApplyPendingStartPosition( self ):
+        
+        if self._pending_start_s is None:
+            
+            return
+            
+        
+        start_s = self._pending_start_s
+        start_paused = self._pending_start_paused
+        
+        self._pending_start_s = None
+        
+        try:
+            
+            self._mpv_mediator.Seek( start_s, precise = True )
+            
+        except Exception as e:
+            
+            pass # if the seek fails, we just play from the start
+            
+        
+        try:
+            
+            self._mpv_mediator.SetPaused( start_paused )
+            
+        except Exception as e:
+            
+            pass
+            
+        
+    
     def ClearMedia( self ):
         
         self.SetMedia( None )
@@ -952,6 +987,8 @@ class MPVWidget( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
                 if not self._currently_in_media_load_error_state:
                     
                     self._file_header_is_loaded = True
+                    
+                    self._ApplyPendingStartPosition()
                     
                 
                 return True
@@ -1445,7 +1482,7 @@ class MPVWidget( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             
         
     
-    def SetMedia( self, media: ClientMediaSingle.MediaSingle | None, start_paused = False ):
+    def SetMedia( self, media: ClientMediaSingle.MediaSingle | None, start_paused = False, start_position_ms = None ):
         
         if media == self._media:
             
@@ -1468,6 +1505,9 @@ class MPVWidget( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self._disallow_seek_on_this_file = False
         self._times_to_play_animation = 0
         self._current_seek_to_start_count = 0
+        
+        self._pending_start_s = None if ( media is None or start_position_ms is None or start_position_ms <= 0 ) else HydrusTime.SecondiseMSFloat( start_position_ms )
+        self._pending_start_paused = start_paused
         
         self._media = media
         
@@ -1575,7 +1615,8 @@ class MPVWidget( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
                     
                     self._player.volume = ClientGUIMediaVolume.GetCorrectCurrentVolume( self._canvas_type )
                     self._player.mute = mute_override or self._last_set_mute_state
-                    self._mpv_mediator.SetPaused( start_paused )
+                    # personal edit: if we are going to jump to a start point, hold paused until the jump is issued
+                    self._mpv_mediator.SetPaused( start_paused or self._pending_start_s is not None )
                     
                     self.update()
                     
