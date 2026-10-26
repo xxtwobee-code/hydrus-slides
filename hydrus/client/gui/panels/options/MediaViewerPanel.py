@@ -4,6 +4,7 @@ from hydrus.core import HydrusData
 
 from hydrus.client import ClientConstants as CC
 from hydrus.client import ClientGlobals as CG
+from hydrus.client import ClientSlideshowStartPoints
 from hydrus.client.gui import ClientGUIFunctions
 from hydrus.client.gui import QtPorting as QP
 from hydrus.client.gui.panels.options import ClientGUIOptionsPanelBase
@@ -93,6 +94,34 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         tt = '(Ensures slightly longer videos will not get cut off right at the end) A slideshow will delay moving on if playing the current duration-having media would stretch the overall slideshow period less than this amount.'
         self._slideshow_long_duration_overspill_percentage.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
         
+        start_points_panel = ClientGUICommon.StaticBox( self, 'slideshow bookmark/random start points (defaults for new windows)' )
+        
+        self._slideshow_duration_media_max_play_seconds = ClientGUICommon.NoneableSpinCtrl( start_points_panel, 120, none_phrase = 'no limit', min = 1, max = 86400, unit = 's' )
+        tt = 'A video or animation (gif, apng, animated webp, etc...) that starts at a bookmark or random point moves on after this long, no matter how long the file is. This overrides "always play media once through" and the long-media delay. Media that starts at the beginning follows the normal slideshow rules. Each media viewer window can change this for itself in the slideshow menu.'
+        self._slideshow_duration_media_max_play_seconds.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_start_play_length_presets = QW.QLineEdit( start_points_panel )
+        self._slideshow_start_play_length_presets.setToolTip( ClientGUIFunctions.WrapToolTip( 'Comma-separated times, in seconds or m:ss, that show up as quick choices in the media viewer slideshow menu.' ) )
+        self._slideshow_start_play_length_presets.textChanged.connect( self._EventPresetsChanged )
+        
+        self._slideshow_random_start_min_duration_seconds = ClientGUICommon.NoneableSpinCtrl( start_points_panel, 300, none_phrase = 'off, always start at the beginning', min = 1, max = 86400, unit = 's' )
+        tt = 'During a slideshow, a video or animation at least this long will start at a random point. If a clip length is set, the random point is chosen so the whole clip fits before the end of the file. Bookmarks, if used, take priority over this. Each media viewer window can change this for itself in the slideshow menu.'
+        self._slideshow_random_start_min_duration_seconds.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_random_start_min_duration_presets = QW.QLineEdit( start_points_panel )
+        self._slideshow_random_start_min_duration_presets.setToolTip( ClientGUIFunctions.WrapToolTip( 'Comma-separated times, in seconds or m:ss, that show up as quick choices in the media viewer slideshow menu.' ) )
+        self._slideshow_random_start_min_duration_presets.textChanged.connect( self._EventPresetsChanged )
+        
+        self._slideshow_bookmark_start_mode = ClientGUICommon.BetterChoice( start_points_panel )
+        self._slideshow_bookmark_start_mode.addItem( 'do not use bookmarks', 0 )
+        self._slideshow_bookmark_start_mode.addItem( 'start at the first bookmark', 1 )
+        self._slideshow_bookmark_start_mode.addItem( 'start at a random bookmark', 2 )
+        tt = 'Bookmarks are timestamps stored in a file note (name set below), like "0:45, 3:10, 1:02:30". You can add the current position with the "bookmark current video position" shortcut in the media viewer. Files with no bookmarks fall back to the random-start rule.'
+        self._slideshow_bookmark_start_mode.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_bookmarks_note_name = QW.QLineEdit( start_points_panel )
+        self._slideshow_bookmarks_note_name.setToolTip( ClientGUIFunctions.WrapToolTip( 'The name of the file note that holds bookmark timestamps.' ) )
+        
         #
         
         self._focus_media_tab_on_viewer_close_if_possible.setChecked( self._new_options.GetBoolean( 'focus_media_tab_on_viewer_close_if_possible' ) )
@@ -124,6 +153,12 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._slideshow_short_duration_loop_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_short_duration_loop_percentage' ) )
         self._slideshow_short_duration_cutoff_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_short_duration_cutoff_percentage' ) )
         self._slideshow_long_duration_overspill_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_long_duration_overspill_percentage' ) )
+        self._slideshow_duration_media_max_play_seconds.SetValue( self._new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' ) )
+        self._slideshow_random_start_min_duration_seconds.SetValue( self._new_options.GetNoneableInteger( 'slideshow_random_start_min_duration_seconds' ) )
+        self._slideshow_bookmark_start_mode.SetValue( self._new_options.GetInteger( 'slideshow_bookmark_start_mode' ) )
+        self._slideshow_bookmarks_note_name.setText( self._new_options.GetString( 'slideshow_bookmarks_note_name' ) )
+        self._slideshow_start_play_length_presets.setText( ', '.join( str( s ) for s in self._new_options.GetIntegerList( 'slideshow_start_play_length_presets' ) ) )
+        self._slideshow_random_start_min_duration_presets.setText( ', '.join( str( s ) for s in self._new_options.GetIntegerList( 'slideshow_random_start_min_duration_presets' ) ) )
         
         #
         
@@ -175,6 +210,19 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         
         slideshow_panel.Add( slideshow_gridbox, CC.FLAGS_EXPAND_SIZER_PERPENDICULAR )
         
+        rows = []
+        
+        rows.append( ( 'Default clip length for bookmark/random starts:', self._slideshow_duration_media_max_play_seconds ) )
+        rows.append( ( 'Clip length menu presets:', self._slideshow_start_play_length_presets ) )
+        rows.append( ( 'Default random start for media at least this long:', self._slideshow_random_start_min_duration_seconds ) )
+        rows.append( ( 'Random start menu presets:', self._slideshow_random_start_min_duration_presets ) )
+        rows.append( ( 'Default bookmark start point:', self._slideshow_bookmark_start_mode ) )
+        rows.append( ( 'Bookmarks note name:', self._slideshow_bookmarks_note_name ) )
+        
+        start_points_gridbox = ClientGUICommon.WrapInGrid( start_points_panel, rows )
+        
+        start_points_panel.Add( start_points_gridbox, CC.FLAGS_EXPAND_SIZER_PERPENDICULAR )
+        
         #
         
         vbox = QP.VBoxLayout()
@@ -182,10 +230,29 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         QP.AddToLayout( vbox, mouse_panel, CC.FLAGS_EXPAND_PERPENDICULAR )
         QP.AddToLayout( vbox, seek_bar_panel, CC.FLAGS_EXPAND_PERPENDICULAR )
         QP.AddToLayout( vbox, slideshow_panel, CC.FLAGS_EXPAND_PERPENDICULAR )
+        QP.AddToLayout( vbox, start_points_panel, CC.FLAGS_EXPAND_PERPENDICULAR )
         QP.AddToLayout( vbox, focus_panel, CC.FLAGS_EXPAND_PERPENDICULAR )
         vbox.addStretch( 0 )
         
         self.setLayout( vbox )
+        
+    
+    def _EventPresetsChanged( self, text ):
+        
+        for widget in ( self._slideshow_start_play_length_presets, self._slideshow_random_start_min_duration_presets ):
+            
+            text = widget.text().strip()
+            
+            tokens = [ t for t in text.replace( ';', ',' ).split( ',' ) if t.strip() != '' ]
+            
+            valid = all( ClientSlideshowStartPoints.ParseSingleDurationS( t ) is not None for t in tokens )
+            
+            widget.setObjectName( '' if valid else 'HydrusInvalid' )
+            
+            widget.style().polish( widget )
+            
+            widget.update()
+            
         
     
     def EventSlideshowChanged( self, text ):
@@ -253,5 +320,34 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._new_options.SetNoneableInteger( 'slideshow_short_duration_loop_seconds', self._slideshow_short_duration_loop_seconds.GetValue() )
         self._new_options.SetNoneableInteger( 'slideshow_short_duration_cutoff_percentage', self._slideshow_short_duration_cutoff_percentage.GetValue() )
         self._new_options.SetNoneableInteger( 'slideshow_long_duration_overspill_percentage', self._slideshow_long_duration_overspill_percentage.GetValue() )
+        self._new_options.SetNoneableInteger( 'slideshow_duration_media_max_play_seconds', self._slideshow_duration_media_max_play_seconds.GetValue() )
+        self._new_options.SetNoneableInteger( 'slideshow_random_start_min_duration_seconds', self._slideshow_random_start_min_duration_seconds.GetValue() )
+        self._new_options.SetInteger( 'slideshow_bookmark_start_mode', self._slideshow_bookmark_start_mode.GetValue() )
+        
+        for ( widget, option_name, pretty_name ) in [
+            ( self._slideshow_start_play_length_presets, 'slideshow_start_play_length_presets', 'clip length' ),
+            ( self._slideshow_random_start_min_duration_presets, 'slideshow_random_start_min_duration_presets', 'random start' )
+        ]:
+            
+            text = widget.text().strip()
+            
+            presets = ClientSlideshowStartPoints.ParseDurationListS( text )
+            
+            if text != '' and len( presets ) == 0:
+                
+                HydrusData.ShowText( f'Could not parse those {pretty_name} presets, so they were not saved!' )
+                
+            else:
+                
+                self._new_options.SetIntegerList( option_name, presets )
+                
+            
+        
+        note_name = self._slideshow_bookmarks_note_name.text().strip()
+        
+        if note_name != '':
+            
+            self._new_options.SetString( 'slideshow_bookmarks_note_name', note_name )
+            
         
     

@@ -17,6 +17,7 @@ from hydrus.client import ClientApplicationCommand as CAC
 from hydrus.client import ClientConstants as CC
 from hydrus.client import ClientGlobals as CG
 from hydrus.client import ClientRendering
+from hydrus.client import ClientSlideshowStartPoints
 from hydrus.client import ClientUgoiraHandling
 from hydrus.client.gui import ClientGUIExceptionHandling
 from hydrus.client.gui import ClientGUIFunctions
@@ -774,7 +775,7 @@ class Animation( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self._stop_for_slideshow = value
         
     
-    def SetMedia( self, media: ClientMediaSingle.MediaSingle | None, start_paused = False ):
+    def SetMedia( self, media: ClientMediaSingle.MediaSingle | None, start_paused = False, start_position_ms = None ):
         
         if media == self._media:
             
@@ -833,6 +834,12 @@ class Animation( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             if self._duration_ms is None and self._frame_durations_ms is not None:
                 
                 self._duration_ms = sum( self._frame_durations_ms )
+                
+            
+            # personal edit: slideshow start point
+            if start_position_ms is not None and start_position_ms > 0 and self._num_frames > 1:
+                
+                self._current_frame_index = ClientSlideshowStartPoints.GetFrameIndexForTimestamp( start_position_ms, self._num_frames, self._duration_ms, self._frame_durations_ms )
                 
             
             CG.client_controller.gui.RegisterAnimationUpdateWindow( self )
@@ -1442,6 +1449,7 @@ class MediaContainer( QW.QWidget ):
         self._deferred_set_media_call: HydrusData.Call | None = None
         self._show_action = CC.MEDIA_VIEWER_ACTION_DO_NOT_SHOW
         self._start_paused = False
+        self._start_position_ms = None
         self._start_with_embed = False
         
         self._current_zoom = 1.0
@@ -1722,7 +1730,7 @@ class MediaContainer( QW.QWidget ):
                     self._media_window = self._animation_window
                     
                 
-                self._media_window.SetMedia( self._media, start_paused = self._start_paused )
+                self._media_window.SetMedia( self._media, start_paused = self._start_paused, start_position_ms = self._start_position_ms )
                 
                 self._media_window.lower()
                 
@@ -1743,7 +1751,7 @@ class MediaContainer( QW.QWidget ):
                     
                     self._media_window.SetMute( self._GetCurrentMuteState() )
                     
-                    self._media_window.SetMedia( self._media, start_paused = self._start_paused )
+                    self._media_window.SetMedia( self._media, start_paused = self._start_paused, start_position_ms = self._start_position_ms )
                     
                 
             elif self._show_action == CC.MEDIA_VIEWER_ACTION_SHOW_WITH_QTMEDIAPLAYER:
@@ -1758,7 +1766,7 @@ class MediaContainer( QW.QWidget ):
                     
                 
             
-            self._media_window.SetMedia( self._media, start_paused = self._start_paused )
+            self._media_window.SetMedia( self._media, start_paused = self._start_paused, start_position_ms = self._start_position_ms )
             
             self._media_window.lower()
             
@@ -2190,6 +2198,27 @@ class MediaContainer( QW.QWidget ):
     def CurrentlyPresentingMediaWithDuration( self ):
         
         return isinstance( self._media_window, ( Animation, ClientGUIMPV.MPVWidget, ClientGUIQtMediaPlayer.QtMediaPlayer ) )
+        
+    
+    def GetCurrentTimestampMS( self ):
+        
+        # personal edit: used for bookmarking
+        
+        if not self.CurrentlyPresentingMediaWithDuration():
+            
+            return None
+            
+        
+        status = self._media_window.GetAnimationBarStatus()
+        
+        if status is None:
+            
+            return None
+            
+        
+        ( current_frame_index, current_timestamp_ms, paused, buffer_indices ) = status
+        
+        return current_timestamp_ms
         
     
     def DoEdgePan( self, pan_type: int ):
@@ -2639,14 +2668,16 @@ class MediaContainer( QW.QWidget ):
         self._static_image_window.SetBackgroundColourGenerator( self._background_colour_generator )
         
     
-    def SetMedia( self, media: ClientMediaSingle.MediaSingle, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = None ):
+    def SetMedia( self, media: ClientMediaSingle.MediaSingle, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = None, start_position_ms = None ):
         
         if not self.ReadyToSwitchMedia():
             
-            self._deferred_set_media_call = HydrusData.Call( self.SetMedia, media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused )
+            self._deferred_set_media_call = HydrusData.Call( self.SetMedia, media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused, start_position_ms = start_position_ms )
             
             return
             
+        
+        self._start_position_ms = start_position_ms
         
         previous_media = self._media
         

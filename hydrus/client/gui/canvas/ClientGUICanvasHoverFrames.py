@@ -1653,7 +1653,8 @@ class CanvasHoverFrameTopNavigableList( CanvasHoverFrameTopNavigable ):
             do_submenu = False,
             slideshow_duration = self._slideshow_period,
             slideshow_is_shuffling = self._my_canvas.SlideshowIsShuffling(),
-            slideshow_is_playing_once_through = self._my_canvas.SlideshowIsPlayingMediaDurationOnceThrough()
+            slideshow_is_playing_once_through = self._my_canvas.SlideshowIsPlayingMediaDurationOnceThrough(),
+            slideshow_start_settings = self._my_canvas.GetSlideshowStartSettings()
         )
         
         CGC.core().PopupMenu( self, menu )
