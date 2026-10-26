@@ -398,6 +398,8 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         
         # personal edit: the start point given to the current media by a slideshow, None if it started normally
         self._current_media_slideshow_start_position_ms = None
+        # and the play length that came with the chosen bookmark, if it had one
+        self._current_media_slideshow_bookmark_length_ms = None
         
         self._background_colour_generator = CanvasBackgroundColourGenerator( self )
         
@@ -1620,6 +1622,7 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             self._current_media = media
             
             self._current_media_slideshow_start_position_ms = None
+            self._current_media_slideshow_bookmark_length_ms = None
             
             if self._current_media is None:
                 
@@ -1647,7 +1650,16 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
                         maintain_pan = self._new_options.GetBoolean( 'media_viewer_lock_current_pan' )
                         
                     
-                    start_position_ms = self._GetSlideshowStartPositionMS( self._current_media )
+                    start_point = self._GetSlideshowStartPoint( self._current_media )
+                    
+                    if start_point is None:
+                        
+                        start_position_ms = None
+                        
+                    else:
+                        
+                        ( start_position_ms, self._current_media_slideshow_bookmark_length_ms ) = start_point
+                        
                     
                     self._current_media_slideshow_start_position_ms = start_position_ms
                     
@@ -1676,7 +1688,7 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             
         
     
-    def _GetSlideshowStartPositionMS( self, media ):
+    def _GetSlideshowStartPoint( self, media ):
         
         # personal edit: bookmark/random start points for videos and animations in a running slideshow
         
@@ -1704,10 +1716,10 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
                 
                 names_to_notes = media.GetMediaResult().GetNotesManager().GetNamesToNotes()
                 
-                bookmarks_ms = ClientSlideshowStartPoints.ParseBookmarksMS( names_to_notes.get( note_name, None ) )
+                bookmarks_ms = ClientSlideshowStartPoints.ParseBookmarks( names_to_notes.get( note_name, None ) )
                 
             
-            return ClientSlideshowStartPoints.ChooseStartPositionMS( media.GetDurationMS(), bookmarks_ms, bookmark_mode, random_start_min_duration_s, max_play_s )
+            return ClientSlideshowStartPoints.ChooseStartPoint( media.GetDurationMS(), bookmarks_ms, bookmark_mode, random_start_min_duration_s, max_play_s )
             
         except Exception as e:
             
@@ -4536,6 +4548,12 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
             return None
             
         
+        # a length written on the bookmark itself beats this window's clip length
+        if self._current_media_slideshow_bookmark_length_ms is not None:
+            
+            return self._current_media_slideshow_bookmark_length_ms / 1000
+            
+        
         return self._slideshow_start_play_length_s
         
     
@@ -5047,6 +5065,14 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
             ClientGUIMenus.AppendSeparator( menu )
             
             self._media_container.AddPlayerMenus( menu )
+            
+            # personal edit
+            if self._current_media.HasDuration():
+                
+                ClientGUIMenus.AppendSeparator( menu )
+                
+                ClientGUIMenus.AppendMenuItem( menu, 'bookmark current video position', 'Add the current playback position of this video/animation to its bookmarks note, for slideshow start points.', self.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION ) )
+                
             
             CGC.core().PopupMenu( self, menu )
             

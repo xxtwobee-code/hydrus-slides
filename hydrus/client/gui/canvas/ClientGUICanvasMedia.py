@@ -971,6 +971,92 @@ class AnimationBar( QW.QWidget ):
         self._currently_in_a_drag = False
         self._it_was_playing_before_drag = False
         
+        # personal edit: bookmark markers, refreshed from the file's note outside of paint
+        self._bookmark_media = None
+        self._bookmark_note_text = None
+        self._bookmarks = []
+        self._last_bookmark_check = 0.0
+        
+    
+    def _RefreshBookmarks( self, force = False ):
+        
+        if self._bookmark_media is None:
+            
+            return
+            
+        
+        if not force and not HydrusTime.TimeHasPassedFloat( self._last_bookmark_check + 0.25 ):
+            
+            return
+            
+        
+        self._last_bookmark_check = HydrusTime.GetNowFloat()
+        
+        try:
+            
+            note_text = None
+            
+            new_options = CG.client_controller.new_options
+            
+            if new_options.GetBoolean( 'animated_scanbar_show_bookmarks' ):
+                
+                note_name = new_options.GetString( 'slideshow_bookmarks_note_name' )
+                
+                note_text = self._bookmark_media.GetMediaResult().GetNotesManager().GetNamesToNotes().get( note_name, None )
+                
+            
+        except Exception as e:
+            
+            note_text = None
+            
+        
+        if force or note_text != self._bookmark_note_text:
+            
+            self._bookmark_note_text = note_text
+            self._bookmarks = ClientSlideshowStartPoints.ParseBookmarks( note_text )
+            
+            self.update()
+            
+        
+    
+    def _DrawBookmarks( self, painter, my_width, my_height ):
+        
+        if len( self._bookmarks ) == 0 or self._duration_ms is None:
+            
+            return
+            
+        
+        marker_colour = QG.QColor( 235, 130, 20 )
+        
+        span_colour = QG.QColor( marker_colour )
+        span_colour.setAlpha( 70 )
+        
+        marker_width = 2
+        
+        for ( start_ms, length_ms ) in self._bookmarks:
+            
+            if start_ms >= self._duration_ms:
+                
+                continue
+                
+            
+            start_x = self._GetXFromTimestamp( start_ms )
+            
+            if length_ms is not None and self._show_gubbins:
+                
+                end_x = self._GetXFromTimestamp( min( start_ms + length_ms, self._duration_ms ) )
+                
+                if end_x > start_x:
+                    
+                    painter.fillRect( start_x, 0, end_x - start_x, my_height, span_colour )
+                    
+                
+            
+            x = max( 0, min( start_x - ( marker_width // 2 ), my_width - marker_width ) )
+            
+            painter.fillRect( x, 0, marker_width, my_height, marker_colour )
+            
+        
     
     def _DoAnimationStatusUpdate( self ):
         
@@ -1111,6 +1197,8 @@ class AnimationBar( QW.QWidget ):
                     
                 
             
+            self._DrawBookmarks( painter, my_width, my_height )
+            
             animated_scanbar_nub_width = CG.client_controller.new_options.GetInteger( 'animated_scanbar_nub_width' )
             
             num_frames_are_useful = self._num_frames is not None and self._num_frames > 1
@@ -1160,6 +1248,10 @@ class AnimationBar( QW.QWidget ):
                     
                 
             
+        else:
+            
+            self._DrawBookmarks( painter, my_width, my_height )
+            
         
         #
         
@@ -1205,6 +1297,10 @@ class AnimationBar( QW.QWidget ):
         
         self._media_window = None
         self._show_gubbins = True
+        
+        self._bookmark_media = None
+        self._bookmark_note_text = None
+        self._bookmarks = []
         
         CG.client_controller.gui.UnregisterAnimationUpdateWindow( self )
         
@@ -1318,6 +1414,8 @@ class AnimationBar( QW.QWidget ):
         
         self._media_window = media_window
         
+        self._bookmark_media = media
+        
         num_frames = media.GetNumFrames()
         
         if num_frames is None:
@@ -1346,6 +1444,8 @@ class AnimationBar( QW.QWidget ):
         
         self._show_gubbins = True
         
+        self._RefreshBookmarks( force = True )
+        
         self._DoAnimationStatusUpdate()
         
         self.update()
@@ -1364,6 +1464,8 @@ class AnimationBar( QW.QWidget ):
             
             return
             
+        
+        self._RefreshBookmarks()
         
         self._DoAnimationStatusUpdate()
         

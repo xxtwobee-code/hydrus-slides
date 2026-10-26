@@ -352,6 +352,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
             'mpv_destruction_test' : False,
             'hover_window_duplicates_always_on_top' : True,
             'animated_scanbar_pop_in_requires_focus' : True,
+            'animated_scanbar_show_bookmarks' : True, # personal edit
             'slideshows_progress_randomly' : False,
             'archive_delete_commit_panel_delays_multiple_delete_choices' : True,
             'always_start_media_viewers_always_on_top' : False,

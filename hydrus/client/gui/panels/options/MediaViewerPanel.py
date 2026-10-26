@@ -64,6 +64,8 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._animated_scanbar_height = ClientGUICommon.BetterSpinBox( seek_bar_panel, min=1, max=255 )
         self._animated_scanbar_hide_height = ClientGUICommon.NoneableSpinCtrl( seek_bar_panel, 5, none_phrase = 'no, hide it completely', min = 1, max = 255, unit = 'px' )
         self._animated_scanbar_pop_in_requires_focus = QW.QCheckBox( seek_bar_panel )
+        self._animated_scanbar_show_bookmarks = QW.QCheckBox( seek_bar_panel )
+        self._animated_scanbar_show_bookmarks.setToolTip( ClientGUIFunctions.WrapToolTip( 'Draw a marker on the seek bar at each slideshow bookmark, and shade the play length of bookmarks that have one.' ) )
         self._animated_scanbar_nub_width = ClientGUICommon.BetterSpinBox( seek_bar_panel, min=1, max=63 )
         
         #
@@ -116,7 +118,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._slideshow_bookmark_start_mode.addItem( 'do not use bookmarks', 0 )
         self._slideshow_bookmark_start_mode.addItem( 'start at the first bookmark', 1 )
         self._slideshow_bookmark_start_mode.addItem( 'start at a random bookmark', 2 )
-        tt = 'Bookmarks are timestamps stored in a file note (name set below), like "0:45, 3:10, 1:02:30". You can add the current position with the "bookmark current video position" shortcut in the media viewer. Files with no bookmarks fall back to the random-start rule.'
+        tt = 'Bookmarks are timestamps stored in a file note (name set below), like "0:45, 3:10, 1:02:30". A bookmark can have its own play length, which beats the clip length: "3:10+45" plays 45 seconds from 3:10, "3:10-3:55" plays from 3:10 to 3:55. You can add the current position with "bookmark current video position" at the bottom of the media viewer right-click menu, or a shortcut. Files with no bookmarks fall back to the random-start rule.'
         self._slideshow_bookmark_start_mode.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
         
         self._slideshow_bookmarks_note_name = QW.QLineEdit( start_points_panel )
@@ -137,6 +139,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._animated_scanbar_hide_height.SetValue( self._new_options.GetNoneableInteger( 'animated_scanbar_hide_height' ) )
         
         self._animated_scanbar_pop_in_requires_focus.setChecked( self._new_options.GetBoolean( 'animated_scanbar_pop_in_requires_focus' ) )
+        self._animated_scanbar_show_bookmarks.setChecked( self._new_options.GetBoolean( 'animated_scanbar_show_bookmarks' ) )
         
         self._media_viewer_cursor_autohide_time_ms.SetValue( self._new_options.GetNoneableInteger( 'media_viewer_cursor_autohide_time_ms' ) )
         self._disallow_media_drags_on_duration_media.setChecked( self._new_options.GetBoolean( 'disallow_media_drags_on_duration_media' ) )
@@ -191,6 +194,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         rows.append( ( 'Seek bar height:', self._animated_scanbar_height ) )
         rows.append( ( 'Seek bar height when mouse away:', self._animated_scanbar_hide_height ) )
         rows.append( ( 'Seek bar full-height pop-in requires window focus:', self._animated_scanbar_pop_in_requires_focus ) )
+        rows.append( ( 'Show slideshow bookmarks on the seek bar:', self._animated_scanbar_show_bookmarks ) )
         rows.append( ( 'Seek bar nub width:', self._animated_scanbar_nub_width ) )
         
         seek_bar_gridbox = ClientGUICommon.WrapInGrid( seek_bar_panel, rows )
@@ -298,6 +302,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._new_options.SetNoneableInteger( 'animated_scanbar_hide_height', self._animated_scanbar_hide_height.GetValue() )
         
         self._new_options.SetBoolean( 'animated_scanbar_pop_in_requires_focus', self._animated_scanbar_pop_in_requires_focus.isChecked() )
+        self._new_options.SetBoolean( 'animated_scanbar_show_bookmarks', self._animated_scanbar_show_bookmarks.isChecked() )
         
         try:
             
