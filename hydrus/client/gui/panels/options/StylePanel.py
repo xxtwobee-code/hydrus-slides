@@ -5,6 +5,7 @@ from hydrus.client import ClientConstants as CC
 from hydrus.client import ClientGlobals as CG
 from hydrus.client.gui import ClientGUIDialogsMessage
 from hydrus.client.gui import ClientGUIStyle
+from hydrus.client.gui import ClientGUIStyleSheetEditor
 from hydrus.client.gui import QtPorting as QP
 from hydrus.client.gui.panels.options import ClientGUIOptionsPanelBase
 from hydrus.client.gui.widgets import ClientGUICommon
@@ -30,6 +31,10 @@ class StylePanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._qt_style_name = ClientGUICommon.BetterChoice( self )
         self._qt_stylesheet_name = ClientGUICommon.BetterChoice( self )
         
+        # personal edit
+        self._edit_stylesheet_colours = ClientGUICommon.BetterButton( self, 'edit stylesheet colours' + '\u2026', self._EditStylesheetColours )
+        self._edit_stylesheet_colours.setToolTip( 'Change any colour in the selected stylesheet with a colour picker, preview it live, and save it as your own stylesheet.' )
+        
         self._qt_style_name.addItem( 'use default ("{}")'.format( ClientGUIStyle.ORIGINAL_STYLE_NAME ), None )
         
         try:
@@ -44,19 +49,7 @@ class StylePanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
             HydrusData.ShowException( e )
             
         
-        self._qt_stylesheet_name.addItem( 'use default', None )
-        
-        try:
-            
-            for name in ClientGUIStyle.GetAvailableStyleSheets():
-                
-                self._qt_stylesheet_name.addItem( name, name )
-                
-            
-        except HydrusExceptions.DataMissing as e:
-            
-            HydrusData.ShowException( e )
-            
+        self._PopulateStylesheetChoice()
         
         #
         
@@ -83,6 +76,7 @@ class StylePanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         
         rows.append( ( 'Qt style:', self._qt_style_name ) )
         rows.append( ( 'Qt stylesheet:', self._qt_stylesheet_name ) )
+        rows.append( ( '', self._edit_stylesheet_colours ) )
         
         gridbox = ClientGUICommon.WrapInGrid( self, rows )
         
@@ -93,6 +87,61 @@ class StylePanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         
         self._qt_style_name.currentIndexChanged.connect( self.StyleChanged )
         self._qt_stylesheet_name.currentIndexChanged.connect( self.StyleChanged )
+        
+    
+    def _PopulateStylesheetChoice( self ):
+        
+        self._qt_stylesheet_name.blockSignals( True )
+        
+        self._qt_stylesheet_name.clear()
+        
+        self._qt_stylesheet_name.addItem( 'use default', None )
+        
+        try:
+            
+            for name in ClientGUIStyle.GetAvailableStyleSheets():
+                
+                self._qt_stylesheet_name.addItem( name, name )
+                
+            
+        except HydrusExceptions.DataMissing as e:
+            
+            HydrusData.ShowException( e )
+            
+        
+        self._qt_stylesheet_name.blockSignals( False )
+        
+    
+    def _EditStylesheetColours( self ):
+        
+        current = self._qt_stylesheet_name.GetValue()
+        
+        dlg = ClientGUIStyleSheetEditor.StyleSheetColourEditor( self, current )
+        
+        dlg.SetRestoreCallable( self.StyleChanged )
+        
+        try:
+            
+            dlg.exec()
+            
+            saved_filename = dlg.GetSavedFilename()
+            
+        finally:
+            
+            dlg.deleteLater()
+            
+        
+        if saved_filename is not None:
+            
+            self._PopulateStylesheetChoice()
+            
+            self._qt_stylesheet_name.blockSignals( True )
+            self._qt_stylesheet_name.SetValue( saved_filename )
+            self._qt_stylesheet_name.blockSignals( False )
+            
+        
+        # apply the saved stylesheet, or put back the one that was showing before the preview
+        self.StyleChanged()
         
     
     def StyleChanged( self ):

@@ -353,6 +353,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
             'mpv_destruction_test' : False,
             'hover_window_duplicates_always_on_top' : True,
             'animated_scanbar_pop_in_requires_focus' : True,
+            'animated_scanbar_show_bookmarks' : True, # personal edit
             'slideshows_progress_randomly' : False,
             'archive_delete_commit_panel_delays_multiple_delete_choices' : True,
             'always_start_media_viewers_always_on_top' : False,
@@ -492,6 +493,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         
         self._dictionary[ 'integers' ] = {
             'notebook_tab_alignment' : CC.DIRECTION_UP,
+            'slideshow_bookmark_start_mode' : 0, # 0 = off, 1 = first bookmark, 2 = random bookmark
             'video_buffer_size' : 96 * 1024 * 1024,
             'related_tags_search_1_duration_ms' : 250,
             'related_tags_search_2_duration_ms' : 2000,
@@ -673,6 +675,8 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
             'slideshow_short_duration_loop_seconds' : 10,
             'slideshow_short_duration_cutoff_percentage' : 75,
             'slideshow_long_duration_overspill_percentage' : 50,
+            'slideshow_duration_media_max_play_seconds' : None,
+            'slideshow_random_start_min_duration_seconds' : None,
             'num_to_show_in_ac_dropdown_children_tab' : 40,
             'number_of_unselected_medias_to_present_tags_for' : 4096,
             'export_path_character_limit' : None,
@@ -712,6 +716,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         
         self._dictionary[ 'strings' ] = {
             'app_display_name' : 'hydrus client',
+            'slideshow_bookmarks_note_name' : 'bookmarks',
             'namespace_connector' : ':',
             'sibling_connector' : ' \u2192 ',
             'or_connector' : ' OR ',
@@ -741,6 +746,8 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         }
         
         self._dictionary[ 'integer_list' ] = {
+            'slideshow_start_play_length_presets' : [ 30, 60, 120, 300 ], # personal edit, seconds
+            'slideshow_random_start_min_duration_presets' : [ 60, 300, 600 ], # personal edit, seconds
             'file_viewing_stats_interesting_canvas_types' : [ CC.CANVAS_MEDIA_VIEWER, CC.CANVAS_CLIENT_API ],
             'command_palette_provider_order' : [ CC.COMMAND_PALETTE_PROVIDER_CALCULATOR, CC.COMMAND_PALETTE_PROVIDER_MAIN_MENU, CC.COMMAND_PALETTE_PROVIDER_MEDIA_MENU, CC.COMMAND_PALETTE_PROVIDER_PAGES_HISTORY, CC.COMMAND_PALETTE_PROVIDER_PAGES, CC.COMMAND_PALETTE_PROVIDER_FAVOURITE_SEARCH ],
             'tab_tree_splitter_sizes_left' : [ 200, 1000 ],

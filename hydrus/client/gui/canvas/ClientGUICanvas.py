@@ -19,6 +19,7 @@ from hydrus.client import ClientData
 from hydrus.client import ClientGlobals as CG
 from hydrus.client import ClientLocation
 from hydrus.client import ClientServices
+from hydrus.client import ClientSlideshowStartPoints
 from hydrus.client import ClientThreading
 from hydrus.client.gui import ClientGUICore as CGC
 from hydrus.client.gui import ClientGUIDialogsManage
@@ -52,6 +53,7 @@ from hydrus.client.metadata import ClientContentUpdates
 from hydrus.client.metadata import ClientRatings
 from hydrus.client.metadata import ClientTags
 from hydrus.client.metadata import ClientTagSorting
+from hydrus.client.search import ClientSearchPredicate
 
 def AddAudioVolumeMenu( menu, canvas_type, media_container ):
     
@@ -394,6 +396,11 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self.setSizePolicy( QW.QSizePolicy.Policy.Expanding, QW.QSizePolicy.Policy.Expanding )
         
         self._location_context = location_context
+        
+        # personal edit: the start point given to the current media by a slideshow, None if it started normally
+        self._current_media_slideshow_start_position_ms = None
+        # and the play length that came with the chosen bookmark, if it had one
+        self._current_media_slideshow_bookmark_length_ms = None
         
         self._background_colour_generator = CanvasBackgroundColourGenerator( self )
         
@@ -1615,6 +1622,9 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             
             self._current_media = media
             
+            self._current_media_slideshow_start_position_ms = None
+            self._current_media_slideshow_bookmark_length_ms = None
+            
             if self._current_media is None:
                 
                 self._media_container.ClearMedia()
@@ -1641,7 +1651,20 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
                         maintain_pan = self._new_options.GetBoolean( 'media_viewer_lock_current_pan' )
                         
                     
-                    self._media_container.SetMedia( self._current_media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused )
+                    start_point = self._GetSlideshowStartPoint( self._current_media )
+                    
+                    if start_point is None:
+                        
+                        start_position_ms = None
+                        
+                    else:
+                        
+                        ( start_position_ms, self._current_media_slideshow_bookmark_length_ms ) = start_point
+                        
+                    
+                    self._current_media_slideshow_start_position_ms = start_position_ms
+                    
+                    self._media_container.SetMedia( self._current_media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused, start_position_ms = start_position_ms )
                     
                 else:
                     
@@ -1664,6 +1687,158 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             
             self.update()
             
+        
+    
+    def _GetSlideshowStartPoint( self, media ):
+        
+        # personal edit: bookmark/random start points for videos and animations in a running slideshow
+        
+        try:
+            
+            if not self.SlideshowIsRunning():
+                
+                return None
+                
+            
+            if media is None or not media.HasDuration():
+                
+                return None
+                
+            
+            new_options = CG.client_controller.new_options
+            
+            ( max_play_s, random_start_min_duration_s, bookmark_mode ) = self.GetSlideshowStartSettings()
+            
+            bookmarks_ms = []
+            
+            if bookmark_mode != ClientSlideshowStartPoints.BOOKMARK_MODE_OFF:
+                
+                note_name = new_options.GetString( 'slideshow_bookmarks_note_name' )
+                
+                names_to_notes = media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+                
+                bookmarks_ms = ClientSlideshowStartPoints.ParseBookmarks( names_to_notes.get( note_name, None ) )
+                
+            
+            search_tag_matcher = None
+            
+            if bookmark_mode == ClientSlideshowStartPoints.BOOKMARK_MODE_SEARCH_TAGS:
+                
+                search_tag_matcher = self._GetSearchTagMatcher()
+                
+            
+            return ClientSlideshowStartPoints.ChooseStartPoint( media.GetDurationMS(), bookmarks_ms, bookmark_mode, random_start_min_duration_s, max_play_s, search_tag_matcher = search_tag_matcher )
+            
+        except Exception as e:
+            
+            HydrusData.PrintException( e )
+            
+            return None
+            
+        
+    
+    def _GetSearchTagMatcher( self ):
+        
+        # personal edit: what the search page this viewer came from is looking for, for tagged bookmarks
+        
+        try:
+            
+            page_key = getattr( self, '_page_key', None )
+            
+            if page_key is None:
+                
+                return None
+                
+            
+            page = CG.client_controller.gui.GetPageFromPageKey( page_key )
+            
+            if page is None:
+                
+                return None
+                
+            
+            predicates = None
+            
+            sidebar = page.GetSidebar() if hasattr( page, 'GetSidebar' ) else None
+            
+            if sidebar is not None and hasattr( sidebar, 'GetPredicates' ):
+                
+                predicates = sidebar.GetPredicates()
+                
+            elif hasattr( page, 'GetPageManager' ):
+                
+                page_manager = page.GetPageManager()
+                
+                if page_manager.HasVariable( 'file_search_context' ):
+                    
+                    predicates = page_manager.GetVariable( 'file_search_context' ).GetPredicates()
+                    
+                
+            
+            if predicates is None:
+                
+                return None
+                
+            
+            included_tags = []
+            excluded_tags = []
+            included_patterns = []
+            excluded_patterns = []
+            
+            def collect( predicate, inside_or = False ):
+                
+                predicate_type = predicate.GetType()
+                inclusive = predicate.IsInclusive()
+                value = predicate.GetValue()
+                
+                if predicate_type == ClientSearchPredicate.PREDICATE_TYPE_OR_CONTAINER:
+                    
+                    for sub_predicate in value:
+                        
+                        collect( sub_predicate, inside_or = True )
+                        
+                    
+                elif predicate_type == ClientSearchPredicate.PREDICATE_TYPE_TAG:
+                    
+                    ( included_tags if inclusive else excluded_tags ).append( value )
+                    
+                elif predicate_type == ClientSearchPredicate.PREDICATE_TYPE_WILDCARD:
+                    
+                    ( included_patterns if inclusive else excluded_patterns ).append( value )
+                    
+                elif predicate_type == ClientSearchPredicate.PREDICATE_TYPE_NAMESPACE:
+                    
+                    ( included_patterns if inclusive else excluded_patterns ).append( f'{value}:*' )
+                    
+                
+            
+            for predicate in predicates:
+                
+                collect( predicate )
+                
+            
+            return ClientSlideshowStartPoints.SearchTagMatcher( included_tags, excluded_tags, included_patterns, excluded_patterns )
+            
+        except Exception as e:
+            
+            HydrusData.PrintException( e )
+            
+            return None
+            
+        
+    
+    def GetSlideshowStartSettings( self ):
+        
+        # personal edit: ( clip length s or None, random start min length s or None, bookmark mode )
+        # the base canvas just uses the defaults from options; the browser keeps its own per-window copy
+        
+        new_options = CG.client_controller.new_options
+        
+        return (
+            new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' ),
+            new_options.GetNoneableInteger( 'slideshow_random_start_min_duration_seconds' ),
+            new_options.GetInteger( 'slideshow_bookmark_start_mode' )
+        )
         
     
     def SlideshowIsRunning( self ) -> bool:
@@ -4285,6 +4460,9 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
         self._slideshow_is_shuffling = CG.client_controller.new_options.GetBoolean( 'slideshows_progress_randomly' )
         self._slideshow_is_playing_once_through = CG.client_controller.new_options.GetBoolean( 'slideshow_always_play_duration_media_once_through' )
         
+        # personal edit: per-window copies of the start point settings, seeded from the defaults in options
+        ( self._slideshow_start_play_length_s, self._slideshow_random_start_min_duration_s, self._slideshow_bookmark_start_mode ) = Canvas.GetSlideshowStartSettings( self )
+        
         if first_hash is None:
             
             first_media = self._media_list.GetFirst()
@@ -4400,10 +4578,145 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                 # ok, if we have a long overspill video, we have now moved to the earliest valid time to switch
                 
             
+            # personal edit: clip length for media that started at a bookmark or random point
+            max_play_seconds = self._GetCurrentMediaClipLengthS()
+            
+            if max_play_seconds is not None:
+                
+                current_period = self._normal_slideshow_period if self._special_slideshow_period_for_current_media is None else self._special_slideshow_period_for_current_media
+                
+                if current_period > max_play_seconds:
+                    
+                    self._special_slideshow_period_for_current_media = max_play_seconds
+                    
+                    stop_after_one_play = False
+                    
+                
+            
             if stop_after_one_play:
                 
                 self._media_container.StopForSlideshow( True )
                 
+            
+        
+    
+    def _BookmarkCurrentMediaPosition( self ):
+        
+        # personal edit: write the current playback position into the bookmarks note
+        
+        if self._current_media is None or not self._current_media.HasDuration():
+            
+            return
+            
+        
+        timestamp_ms = self._media_container.GetCurrentTimestampMS()
+        
+        if timestamp_ms is None:
+            
+            return
+            
+        
+        note_name = CG.client_controller.new_options.GetString( 'slideshow_bookmarks_note_name' )
+        
+        names_to_notes = self._current_media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+        
+        new_note = ClientSlideshowStartPoints.AddBookmarkToText( names_to_notes.get( note_name, None ), timestamp_ms )
+        
+        hash = self._current_media.GetHash()
+        
+        content_updates = [ ClientContentUpdates.ContentUpdate( HC.CONTENT_TYPE_NOTES, HC.CONTENT_UPDATE_SET, ( hash, note_name, new_note ) ) ]
+        
+        content_update_package = ClientContentUpdates.ContentUpdatePackage.STATICCreateFromContentUpdates( CC.LOCAL_NOTES_SERVICE_KEY, content_updates )
+        
+        CG.client_controller.Write( 'content_updates', content_update_package )
+        
+        job_status = ClientThreading.JobStatus()
+        
+        job_status.SetStatusText( f'Bookmarked {ClientSlideshowStartPoints.FormatTimestampMS( timestamp_ms )}' )
+        
+        CG.client_controller.pub( 'message', job_status )
+        
+        job_status.FinishAndDismiss( 3 )
+        
+    
+    def _GetCurrentMediaClipLengthS( self ):
+        
+        if self._current_media_slideshow_start_position_ms is None:
+            
+            return None
+            
+        
+        # a length written on the bookmark itself beats this window's clip length
+        if self._current_media_slideshow_bookmark_length_ms is not None:
+            
+            return self._current_media_slideshow_bookmark_length_ms / 1000
+            
+        
+        return self._slideshow_start_play_length_s
+        
+    
+    def _AskForDurationS( self, message, default_s ):
+        
+        default = '' if default_s is None else ClientSlideshowStartPoints.FormatTimestampMS( default_s * 1000 )
+        
+        try:
+            
+            text = ClientGUIDialogsQuick.EnterText( self, message, default = default, min_char_width = 12 )
+            
+        except HydrusExceptions.CancelledException:
+            
+            return None
+            
+        
+        seconds = ClientSlideshowStartPoints.ParseSingleDurationS( text )
+        
+        if seconds is None:
+            
+            ClientGUIDialogsMessage.ShowWarning( self, 'Could not parse that time! Use seconds (90) or minutes:seconds (1:30).' )
+            
+        
+        return seconds
+        
+    
+    def _SetSlideshowStartSetting( self, action, data ):
+        
+        # personal edit: changes here only affect this window
+        
+        if action == CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH:
+            
+            if data == -1:
+                
+                seconds = self._AskForDurationS( 'Enter the clip length for videos that start at a bookmark or random point, in seconds or m:ss.', self._slideshow_start_play_length_s )
+                
+                if seconds is None:
+                    
+                    return
+                    
+                
+                data = seconds
+                
+            
+            self._slideshow_start_play_length_s = None if data == 0 else int( data )
+            
+        elif action == CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_RANDOM_START_MIN_DURATION:
+            
+            if data == -1:
+                
+                seconds = self._AskForDurationS( 'Videos at least this long will start at a random point. Enter seconds or m:ss.', self._slideshow_random_start_min_duration_s )
+                
+                if seconds is None:
+                    
+                    return
+                    
+                
+                data = seconds
+                
+            
+            self._slideshow_random_start_min_duration_s = None if data == 0 else int( data )
+            
+        elif action == CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE:
+            
+            self._slideshow_bookmark_start_mode = int( data )
             
         
     
@@ -4427,7 +4740,12 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                     
                     if not self._media_container.HasPlayedOnceThrough():
                         
-                        return
+                        # personal edit: the clip length for bookmark/random starts beats 'play once through'
+                        max_play_seconds = self._GetCurrentMediaClipLengthS()
+                        
+                        if max_play_seconds is None or not HydrusTime.TimeHasPassedFloat( self._last_slideshow_switch_time + max_play_seconds ):
+                            
+                            return
                         
                     
                 
@@ -4561,6 +4879,11 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
         return self._slideshow_is_shuffling
         
     
+    def GetSlideshowStartSettings( self ):
+        
+        return ( self._slideshow_start_play_length_s, self._slideshow_random_start_min_duration_s, self._slideshow_bookmark_start_mode )
+        
+    
     def SlideshowIsPlayingMediaDurationOnceThrough( self ):
         
         return self._slideshow_is_playing_once_through
@@ -4613,6 +4936,14 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
             elif action == CAC.SIMPLE_FLIP_GLOBAL_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH:
                 
                 self._slideshow_is_playing_once_through = CG.client_controller.new_options.FlipBoolean( 'slideshow_always_play_duration_media_once_through' )
+                
+            elif action == CAC.SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION:
+                
+                self._BookmarkCurrentMediaPosition()
+                
+            elif action in ( CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_RANDOM_START_MIN_DURATION, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE ):
+                
+                self._SetSlideshowStartSetting( action, command.GetSimpleData() )
                 
             elif action == CAC.SIMPLE_SHOW_MENU:
                 
@@ -4716,7 +5047,8 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                 self._slideshow_is_running,
                 slideshow_duration = self._normal_slideshow_period,
                 slideshow_is_shuffling = self._slideshow_is_shuffling,
-                slideshow_is_playing_once_through = self._slideshow_is_playing_once_through
+                slideshow_is_playing_once_through = self._slideshow_is_playing_once_through,
+                slideshow_start_settings = self.GetSlideshowStartSettings()
             )
             
             ClientGUIMenus.AppendSeparator( menu )
@@ -4831,6 +5163,14 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
             ClientGUIMenus.AppendSeparator( menu )
             
             self._media_container.AddPlayerMenus( menu )
+            
+            # personal edit
+            if self._current_media.HasDuration():
+                
+                ClientGUIMenus.AppendSeparator( menu )
+                
+                ClientGUIMenus.AppendMenuItem( menu, 'bookmark current video position', 'Add the current playback position of this video/animation to its bookmarks note, for slideshow start points.', self.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION ) )
+                
             
             CGC.core().PopupMenu( self, menu )
             
