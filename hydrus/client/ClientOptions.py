@@ -494,6 +494,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         self._dictionary[ 'integers' ] = {
             'notebook_tab_alignment' : CC.DIRECTION_UP,
             'slideshow_bookmark_start_mode' : 0, # 0 = off, 1 = first bookmark, 2 = random bookmark
+            'slideshow_tag_mark_start_mode' : 0, # 0 = off, 1 = a tag mark matching the search
             'video_buffer_size' : 96 * 1024 * 1024,
             'related_tags_search_1_duration_ms' : 250,
             'related_tags_search_2_duration_ms' : 2000,
@@ -717,6 +718,7 @@ class ClientOptions( HydrusSerialisable.SerialisableBase ):
         self._dictionary[ 'strings' ] = {
             'app_display_name' : 'hydrus client',
             'slideshow_bookmarks_note_name' : 'bookmarks',
+            'slideshow_tag_marks_note_name' : 'tag marks',
             'namespace_connector' : ':',
             'sibling_connector' : ' \u2192 ',
             'or_connector' : ' OR ',

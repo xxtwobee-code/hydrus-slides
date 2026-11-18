@@ -224,6 +224,8 @@ SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION = 9001
 SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH = 9002 # data: seconds, 0 = no limit, -1 = ask
 SIMPLE_SET_THISWINDOW_SLIDESHOW_RANDOM_START_MIN_DURATION = 9003 # data: seconds, 0 = off, -1 = ask
 SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE = 9004 # data: 0 off, 1 first, 2 random
+SIMPLE_TAG_MARK_CURRENT_MEDIA_POSITION = 9005
+SIMPLE_SET_THISWINDOW_SLIDESHOW_TAG_MARK_START_MODE = 9006 # data: 0 off, 1 matching the search
 
 REARRANGE_THUMBNAILS_TYPE_FIXED = 0
 REARRANGE_THUMBNAILS_TYPE_COMMAND = 1
@@ -488,6 +490,8 @@ simple_enum_to_str_lookup = {
     SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH: 'slideshow start points: set clip length for current window',
     SIMPLE_SET_THISWINDOW_SLIDESHOW_RANDOM_START_MIN_DURATION: 'slideshow start points: set random start length for current window',
     SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE: 'slideshow start points: set bookmark mode for current window',
+    SIMPLE_TAG_MARK_CURRENT_MEDIA_POSITION: 'tag mark current video position (asks for tags, for slideshow start points)',
+    SIMPLE_SET_THISWINDOW_SLIDESHOW_TAG_MARK_START_MODE: 'slideshow start points: set tag mark mode for current window',
     SIMPLE_FLIP_GLOBAL_SLIDESHOW_ALWAYS_PLAY_DURATION_MEDIA_ONCE_THROUGH: 'always play media once through: flip global option (and apply to current window)',
     SIMPLE_WINDOW_ALWAYS_ON_TOP_WHILE_PLAYING_FLIP : 'window "always on top while playing": flip on/off',
     SIMPLE_SHOW_DETAILED_EMBEDDED_FILE_METADATA_WINDOW : 'open detailed embedded file metadata window',

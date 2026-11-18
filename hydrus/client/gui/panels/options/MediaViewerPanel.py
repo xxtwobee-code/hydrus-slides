@@ -65,7 +65,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._animated_scanbar_hide_height = ClientGUICommon.NoneableSpinCtrl( seek_bar_panel, 5, none_phrase = 'no, hide it completely', min = 1, max = 255, unit = 'px' )
         self._animated_scanbar_pop_in_requires_focus = QW.QCheckBox( seek_bar_panel )
         self._animated_scanbar_show_bookmarks = QW.QCheckBox( seek_bar_panel )
-        self._animated_scanbar_show_bookmarks.setToolTip( ClientGUIFunctions.WrapToolTip( 'Draw a marker on the seek bar at each slideshow bookmark, and shade the play length of bookmarks that have one.' ) )
+        self._animated_scanbar_show_bookmarks.setToolTip( ClientGUIFunctions.WrapToolTip( 'Draw a marker on the seek bar at each slideshow bookmark (orange) and tag mark (teal), and shade the play length of those that have one.' ) )
         self._animated_scanbar_nub_width = ClientGUICommon.BetterSpinBox( seek_bar_panel, min=1, max=63 )
         
         #
@@ -96,7 +96,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         tt = '(Ensures slightly longer videos will not get cut off right at the end) A slideshow will delay moving on if playing the current duration-having media would stretch the overall slideshow period less than this amount.'
         self._slideshow_long_duration_overspill_percentage.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
         
-        start_points_panel = ClientGUICommon.StaticBox( self, 'slideshow bookmark/random start points (defaults for new windows)' )
+        start_points_panel = ClientGUICommon.StaticBox( self, 'slideshow bookmark/tag mark/random start points (defaults for new windows)' )
         
         self._slideshow_duration_media_max_play_seconds = ClientGUICommon.NoneableSpinCtrl( start_points_panel, 120, none_phrase = 'no limit', min = 1, max = 86400, unit = 's' )
         tt = 'A video or animation (gif, apng, animated webp, etc...) that starts at a bookmark or random point moves on after this long, no matter how long the file is. This overrides "always play media once through" and the long-media delay. Media that starts at the beginning follows the normal slideshow rules. Each media viewer window can change this for itself in the slideshow menu.'
@@ -118,12 +118,20 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._slideshow_bookmark_start_mode.addItem( 'do not use bookmarks', 0 )
         self._slideshow_bookmark_start_mode.addItem( 'start at the first bookmark', 1 )
         self._slideshow_bookmark_start_mode.addItem( 'start at a random bookmark', 2 )
-        self._slideshow_bookmark_start_mode.addItem( 'start at a bookmark matching the search (random if none match)', 3 )
-        tt = 'Bookmarks are timestamps stored in a file note (name set below), like "0:45, 3:10, 1:02:30". A bookmark can have its own play length, which beats the clip length: "3:10+45" plays 45 seconds from 3:10, "3:10-3:55" plays from 3:10 to 3:55. Tags go in square brackets after a bookmark, "3:10+45 [samus aran, boss fight]", and the "matching the search" mode picks bookmarks tagged with something in the search the viewer was opened from. You can add the current position with "bookmark current video position" at the bottom of the media viewer right-click menu, or a shortcut. Files with no bookmarks fall back to the random-start rule.'
+        tt = 'Bookmarks are favourite spots: timestamps stored in a file note (name set below), like \"0:45, 3:10, 1:02:30\". A bookmark can have its own play length, which beats the clip length: \"3:10+45\" plays 45 seconds from 3:10, \"3:10-3:55\" plays from 3:10 to 3:55. You can add the current position with \"bookmark current video position\" at the bottom of the media viewer right-click menu, or a shortcut. Files with no bookmarks fall back to the random-start rule.'
         self._slideshow_bookmark_start_mode.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
         
         self._slideshow_bookmarks_note_name = QW.QLineEdit( start_points_panel )
         self._slideshow_bookmarks_note_name.setToolTip( ClientGUIFunctions.WrapToolTip( 'The name of the file note that holds bookmark timestamps.' ) )
+        
+        self._slideshow_tag_mark_start_mode = ClientGUICommon.BetterChoice( start_points_panel )
+        self._slideshow_tag_mark_start_mode.addItem( 'do not use tag marks', 0 )
+        self._slideshow_tag_mark_start_mode.addItem( 'start at a tag mark matching the search', 1 )
+        tt = 'Tag marks are sections of a video that carry tags, stored in their own file note (name set below). They look like bookmarks with tags in square brackets after them: \"3:10-3:55 [samus aran, boss fight]\". When this is on and a video has a tag mark with a tag from the search the viewer was opened from, the slideshow starts at that tag mark and plays just that section (its own length, else the clip length). Videos with no matching tag mark use the bookmark and random-start rules. You can add a tag mark with \"tag mark current video position\" in the media viewer right-click menu, or a shortcut.'
+        self._slideshow_tag_mark_start_mode.setToolTip( ClientGUIFunctions.WrapToolTip( tt ) )
+        
+        self._slideshow_tag_marks_note_name = QW.QLineEdit( start_points_panel )
+        self._slideshow_tag_marks_note_name.setToolTip( ClientGUIFunctions.WrapToolTip( 'The name of the file note that holds tag marks.' ) )
         
         #
         
@@ -159,8 +167,17 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._slideshow_long_duration_overspill_percentage.SetValue( self._new_options.GetNoneableInteger( 'slideshow_long_duration_overspill_percentage' ) )
         self._slideshow_duration_media_max_play_seconds.SetValue( self._new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' ) )
         self._slideshow_random_start_min_duration_seconds.SetValue( self._new_options.GetNoneableInteger( 'slideshow_random_start_min_duration_seconds' ) )
-        self._slideshow_bookmark_start_mode.SetValue( self._new_options.GetInteger( 'slideshow_bookmark_start_mode' ) )
+        bookmark_start_mode = self._new_options.GetInteger( 'slideshow_bookmark_start_mode' )
+        
+        if bookmark_start_mode == 3: # the old 'matching the search' mode, from when bookmarks had tags
+            
+            bookmark_start_mode = 2
+            
+        
+        self._slideshow_bookmark_start_mode.SetValue( bookmark_start_mode )
         self._slideshow_bookmarks_note_name.setText( self._new_options.GetString( 'slideshow_bookmarks_note_name' ) )
+        self._slideshow_tag_mark_start_mode.SetValue( self._new_options.GetInteger( 'slideshow_tag_mark_start_mode' ) )
+        self._slideshow_tag_marks_note_name.setText( self._new_options.GetString( 'slideshow_tag_marks_note_name' ) )
         self._slideshow_start_play_length_presets.setText( ', '.join( str( s ) for s in self._new_options.GetIntegerList( 'slideshow_start_play_length_presets' ) ) )
         self._slideshow_random_start_min_duration_presets.setText( ', '.join( str( s ) for s in self._new_options.GetIntegerList( 'slideshow_random_start_min_duration_presets' ) ) )
         
@@ -217,12 +234,14 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         
         rows = []
         
-        rows.append( ( 'Default clip length for bookmark/random starts:', self._slideshow_duration_media_max_play_seconds ) )
+        rows.append( ( 'Default clip length for bookmark/tag mark/random starts:', self._slideshow_duration_media_max_play_seconds ) )
         rows.append( ( 'Clip length menu presets:', self._slideshow_start_play_length_presets ) )
         rows.append( ( 'Default random start for media at least this long:', self._slideshow_random_start_min_duration_seconds ) )
         rows.append( ( 'Random start menu presets:', self._slideshow_random_start_min_duration_presets ) )
         rows.append( ( 'Default bookmark start point:', self._slideshow_bookmark_start_mode ) )
         rows.append( ( 'Bookmarks note name:', self._slideshow_bookmarks_note_name ) )
+        rows.append( ( 'Default tag mark start point:', self._slideshow_tag_mark_start_mode ) )
+        rows.append( ( 'Tag marks note name:', self._slideshow_tag_marks_note_name ) )
         
         start_points_gridbox = ClientGUICommon.WrapInGrid( start_points_panel, rows )
         
@@ -329,6 +348,7 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         self._new_options.SetNoneableInteger( 'slideshow_duration_media_max_play_seconds', self._slideshow_duration_media_max_play_seconds.GetValue() )
         self._new_options.SetNoneableInteger( 'slideshow_random_start_min_duration_seconds', self._slideshow_random_start_min_duration_seconds.GetValue() )
         self._new_options.SetInteger( 'slideshow_bookmark_start_mode', self._slideshow_bookmark_start_mode.GetValue() )
+        self._new_options.SetInteger( 'slideshow_tag_mark_start_mode', self._slideshow_tag_mark_start_mode.GetValue() )
         
         for ( widget, option_name, pretty_name ) in [
             ( self._slideshow_start_play_length_presets, 'slideshow_start_play_length_presets', 'clip length' ),
@@ -354,6 +374,13 @@ class MediaViewerPanel( ClientGUIOptionsPanelBase.OptionsPagePanel ):
         if note_name != '':
             
             self._new_options.SetString( 'slideshow_bookmarks_note_name', note_name )
+            
+        
+        tag_marks_note_name = self._slideshow_tag_marks_note_name.text().strip()
+        
+        if tag_marks_note_name != '':
+            
+            self._new_options.SetString( 'slideshow_tag_marks_note_name', tag_marks_note_name )
             
         
     

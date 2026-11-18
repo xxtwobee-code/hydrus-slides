@@ -975,6 +975,8 @@ class AnimationBar( QW.QWidget ):
         self._bookmark_media = None
         self._bookmark_note_text = None
         self._bookmarks = []
+        self._tag_mark_note_text = None
+        self._tag_marks = []
         self._last_bookmark_check = 0.0
         
     
@@ -995,25 +997,31 @@ class AnimationBar( QW.QWidget ):
         try:
             
             note_text = None
+            tag_mark_note_text = None
             
             new_options = CG.client_controller.new_options
             
             if new_options.GetBoolean( 'animated_scanbar_show_bookmarks' ):
                 
-                note_name = new_options.GetString( 'slideshow_bookmarks_note_name' )
+                names_to_notes = self._bookmark_media.GetMediaResult().GetNotesManager().GetNamesToNotes()
                 
-                note_text = self._bookmark_media.GetMediaResult().GetNotesManager().GetNamesToNotes().get( note_name, None )
+                note_text = names_to_notes.get( new_options.GetString( 'slideshow_bookmarks_note_name' ), None )
+                tag_mark_note_text = names_to_notes.get( new_options.GetString( 'slideshow_tag_marks_note_name' ), None )
                 
             
         except Exception as e:
             
             note_text = None
+            tag_mark_note_text = None
             
         
-        if force or note_text != self._bookmark_note_text:
+        if force or note_text != self._bookmark_note_text or tag_mark_note_text != self._tag_mark_note_text:
             
             self._bookmark_note_text = note_text
             self._bookmarks = ClientSlideshowStartPoints.ParseBookmarks( note_text )
+            
+            self._tag_mark_note_text = tag_mark_note_text
+            self._tag_marks = ClientSlideshowStartPoints.ParseTagMarks( tag_mark_note_text )
             
             self.update()
             
@@ -1021,71 +1029,81 @@ class AnimationBar( QW.QWidget ):
     
     def _DrawBookmarks( self, painter, my_width, my_height ):
         
-        if len( self._bookmarks ) == 0 or self._duration_ms is None:
+        if self._duration_ms is None:
             
             return
             
         
-        marker_colour = QG.QColor( 235, 130, 20 )
-        
-        span_colour = QG.QColor( marker_colour )
-        span_colour.setAlpha( 70 )
-        
-        marker_width = 2
-        
-        for ( start_ms, length_ms, tags ) in self._bookmarks:
+        # bookmarks are orange and full height; tag marks are teal and only fill the bottom half, so the two can sit on top of each other
+        for ( marks, marker_colour, top, height ) in [
+            ( self._bookmarks, QG.QColor( 235, 130, 20 ), 0, my_height ),
+            ( self._tag_marks, QG.QColor( 30, 170, 170 ), my_height // 2, my_height - ( my_height // 2 ) )
+        ]:
             
-            if start_ms >= self._duration_ms:
-                
-                continue
-                
+            span_colour = QG.QColor( marker_colour )
+            span_colour.setAlpha( 70 )
             
-            start_x = self._GetXFromTimestamp( start_ms )
+            marker_width = 2
             
-            if length_ms is not None and self._show_gubbins:
+            for mark in marks:
                 
-                end_x = self._GetXFromTimestamp( min( start_ms + length_ms, self._duration_ms ) )
+                ( start_ms, length_ms ) = ( mark[ 0 ], mark[ 1 ] )
                 
-                if end_x > start_x:
+                if start_ms >= self._duration_ms:
                     
-                    painter.fillRect( start_x, 0, end_x - start_x, my_height, span_colour )
+                    continue
                     
                 
-            
-            x = max( 0, min( start_x - ( marker_width // 2 ), my_width - marker_width ) )
-            
-            painter.fillRect( x, 0, marker_width, my_height, marker_colour )
+                start_x = self._GetXFromTimestamp( start_ms )
+                
+                if length_ms is not None and self._show_gubbins:
+                    
+                    end_x = self._GetXFromTimestamp( min( start_ms + length_ms, self._duration_ms ) )
+                    
+                    if end_x > start_x:
+                        
+                        painter.fillRect( start_x, top, end_x - start_x, height, span_colour )
+                        
+                    
+                
+                x = max( 0, min( start_x - ( marker_width // 2 ), my_width - marker_width ) )
+                
+                painter.fillRect( x, top, marker_width, height, marker_colour )
+                
             
         
     
     def _GetBookmarkTooltipAt( self, x ):
         
-        if len( self._bookmarks ) == 0 or self._duration_ms is None:
+        if ( len( self._bookmarks ) == 0 and len( self._tag_marks ) == 0 ) or self._duration_ms is None:
             
             return None
             
         
         lines = []
         
-        for b in self._bookmarks:
+        for ( label, marks ) in [ ( 'bookmark', self._bookmarks ), ( 'tag mark', self._tag_marks ) ]:
             
-            if b.start_ms >= self._duration_ms:
+            for m in marks:
                 
-                continue
+                if m.start_ms >= self._duration_ms:
+                    
+                    continue
+                    
                 
-            
-            start_x = self._GetXFromTimestamp( b.start_ms )
-            
-            end_x = start_x
-            
-            if b.length_ms is not None:
+                start_x = self._GetXFromTimestamp( m.start_ms )
                 
-                end_x = self._GetXFromTimestamp( min( b.start_ms + b.length_ms, self._duration_ms ) )
+                end_x = start_x
                 
-            
-            if start_x - 4 <= x <= max( end_x, start_x + 4 ):
+                if m.length_ms is not None:
+                    
+                    end_x = self._GetXFromTimestamp( min( m.start_ms + m.length_ms, self._duration_ms ) )
+                    
                 
-                lines.append( 'bookmark ' + ClientSlideshowStartPoints.FormatBookmark( b.start_ms, b.length_ms, b.tags ) )
+                if start_x - 4 <= x <= max( end_x, start_x + 4 ):
+                    
+                    lines.append( label + ' ' + ClientSlideshowStartPoints.FormatTagMark( m.start_ms, m.length_ms, getattr( m, 'tags', () ) ) )
+                    
                 
             
         
@@ -1094,7 +1112,7 @@ class AnimationBar( QW.QWidget ):
     
     def event( self, event ):
         
-        # personal edit: hover a bookmark marker to see its time, length and tags
+        # personal edit: hover a bookmark or tag mark marker to see its time, length and tags
         if event.type() == QC.QEvent.Type.ToolTip:
             
             text = self._GetBookmarkTooltipAt( event.pos().x() )
@@ -1357,6 +1375,8 @@ class AnimationBar( QW.QWidget ):
         self._bookmark_media = None
         self._bookmark_note_text = None
         self._bookmarks = []
+        self._tag_mark_note_text = None
+        self._tag_marks = []
         
         CG.client_controller.gui.UnregisterAnimationUpdateWindow( self )
         

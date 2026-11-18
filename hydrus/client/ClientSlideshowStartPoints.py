@@ -11,9 +11,14 @@ Each timestamp can be "SS", "SS.sss", "M:SS", "MM:SS.sss" or "H:MM:SS(.sss)".
 A bookmark can carry its own play length:
   "3:10+45" or "3:10+0:45" - start at 3:10, play for 45 seconds
   "3:10-3:55"              - start at 3:10, play until 3:55
-A bookmark can carry tags in square brackets right after it, separated by commas:
-  "3:10+45 [samus aran, character:samus aran, blue hair]"
 Anything that does not parse is ignored, so you can leave comments in the note.
+
+Bookmarks are favourite spots. They carry no tags.
+
+Tag marks are a separate feature, stored in their own note. They use the same format, but each one carries tags in
+square brackets right after it, separated by commas, and is meant to be a whole section:
+  "3:10-3:55 [samus aran, character:samus aran, blue hair]"
+When the slideshow is set to use tag marks and the search has a matching tag, it starts at a matching tag mark.
 """
 
 import collections
@@ -24,9 +29,13 @@ import re
 BOOKMARK_MODE_OFF = 0
 BOOKMARK_MODE_FIRST = 1
 BOOKMARK_MODE_RANDOM = 2
-BOOKMARK_MODE_SEARCH_TAGS = 3 # a random bookmark whose tags match the search, else any random bookmark
+_LEGACY_BOOKMARK_MODE_SEARCH_TAGS = 3 # an old saved option from when bookmarks had tags. it now just means 'random bookmark'
 
-Bookmark = collections.namedtuple( 'Bookmark', [ 'start_ms', 'length_ms', 'tags' ] )
+TAG_MARK_MODE_OFF = 0
+TAG_MARK_MODE_SEARCH = 1 # start at a random tag mark that matches the search; if none match, fall back to the bookmark/random rules
+
+Bookmark = collections.namedtuple( 'Bookmark', [ 'start_ms', 'length_ms' ] )
+TagMark = collections.namedtuple( 'TagMark', [ 'start_ms', 'length_ms', 'tags' ] )
 
 # if there is no max play time cap, do not pick a random start right at the very end of the file
 RANDOM_START_NO_CAP_MAX_FRACTION = 0.9
@@ -138,7 +147,12 @@ def CleanTag( tag: str ) -> str:
 
 def ParseTagGroup( group: str ) -> tuple:
     
-    inner = group.strip()[ 1 : -1 ]
+    return ParseTagText( group.strip()[ 1 : -1 ] )
+    
+
+def ParseTagText( text: str ) -> tuple:
+    
+    inner = text
     
     tags = []
     
@@ -155,10 +169,11 @@ def ParseTagGroup( group: str ) -> tuple:
     return tuple( tags )
     
 
-def ParseBookmarks( text: str | None ) -> list:
+def _ParseMarks( text: str | None ) -> list:
     """
-    Returns sorted Bookmark( start_ms, length_ms or None, tags ) tuples. If the same start appears twice, the first one written wins.
-    A [tag, group] right after a bookmark belongs to it; a tag group with no bookmark before it is ignored.
+    Returns sorted TagMark( start_ms, length_ms or None, tags ) tuples, tags being empty for a plain bookmark.
+    If the same start appears twice, the first one written wins.
+    A [tag, group] right after an entry belongs to it; a tag group with no entry before it is ignored.
     """
     
     if text is None:
@@ -208,7 +223,7 @@ def ParseBookmarks( text: str | None ) -> list:
             
         else:
             
-            bookmarks[ start_ms ] = Bookmark( start_ms, length_ms, () )
+            bookmarks[ start_ms ] = TagMark( start_ms, length_ms, () )
             
             last_start_ms = start_ms
             
@@ -217,12 +232,35 @@ def ParseBookmarks( text: str | None ) -> list:
     return sorted( bookmarks.values() )
 
 
+def ParseBookmarks( text: str | None ) -> list:
+    """
+    Returns sorted Bookmark( start_ms, length_ms or None ) tuples from the bookmarks note.
+    Bookmarks have no tags. Any [tag group] in the note (from before tag marks existed) is ignored.
+    """
+    
+    return [ Bookmark( m.start_ms, m.length_ms ) for m in _ParseMarks( text ) ]
+    
+
+def ParseTagMarks( text: str | None ) -> list:
+    """
+    Returns sorted TagMark( start_ms, length_ms or None, tags ) tuples from the tag marks note.
+    An entry with no tags is not a tag mark and is skipped.
+    """
+    
+    return [ m for m in _ParseMarks( text ) if len( m.tags ) > 0 ]
+    
+
 def ParseBookmarksMS( text: str | None ) -> list[ int ]:
 
     return [ b.start_ms for b in ParseBookmarks( text ) ]
 
 
-def FormatBookmark( start_ms: int, length_ms: int | None, tags = () ) -> str:
+def FormatBookmark( start_ms: int, length_ms: int | None ) -> str:
+    
+    return FormatTagMark( start_ms, length_ms, () )
+    
+
+def FormatTagMark( start_ms: int, length_ms: int | None, tags = () ) -> str:
     
     result = FormatTimestampMS( start_ms )
     
@@ -351,18 +389,33 @@ def AddBookmarkToText( text: str | None, new_ms: int, merge_within_ms: int = 500
     """
     Returns the new note text with the bookmark added. Bookmarks are rewritten as a sorted, comma-separated list.
     A new bookmark within merge_within_ms of an existing one is treated as a duplicate.
+    Anything already in the note, including old tag groups, is kept as it was.
     """
 
-    bookmarks = ParseBookmarks( text )
+    marks = _ParseMarks( text )
     
-    if not any( abs( b.start_ms - new_ms ) <= merge_within_ms for b in bookmarks ):
+    if not any( abs( m.start_ms - new_ms ) <= merge_within_ms for m in marks ):
         
-        bookmarks.append( Bookmark( int( new_ms ), None, () ) )
+        marks.append( TagMark( int( new_ms ), None, () ) )
         
     
-    bookmarks.sort()
+    marks.sort()
     
-    return ', '.join( FormatBookmark( b.start_ms, b.length_ms, b.tags ) for b in bookmarks )
+    return ', '.join( FormatTagMark( m.start_ms, m.length_ms, m.tags ) for m in marks )
+    
+
+def AddTagMarkToText( text: str | None, new_ms: int, tags, length_ms: int | None = None, merge_within_ms: int = 500 ) -> str:
+    """
+    Returns the new note text with the tag mark added. A tag mark within merge_within_ms of the new one is replaced by it.
+    """
+    
+    marks = [ m for m in _ParseMarks( text ) if abs( m.start_ms - new_ms ) > merge_within_ms ]
+    
+    marks.append( TagMark( int( new_ms ), length_ms, tuple( tags ) ) )
+    
+    marks.sort()
+    
+    return ', '.join( FormatTagMark( m.start_ms, m.length_ms, m.tags ) for m in marks )
     
 
 class SearchTagMatcher( object ):
@@ -442,16 +495,56 @@ class SearchTagMatcher( object ):
         return any( self._TagMatchesTag( tag, t ) for t in self._excluded_tags ) or any( self._TagMatchesPattern( tag, p ) for p in self._excluded_patterns )
         
     
-    def BookmarkIsWanted( self, bookmark ) -> bool:
+    def TagMarkIsWanted( self, tag_mark ) -> bool:
         
-        return any( self.TagIsWanted( t ) for t in bookmark.tags )
+        return any( self.TagIsWanted( t ) for t in tag_mark.tags )
         
     
-    def BookmarkIsExcluded( self, bookmark ) -> bool:
+    def TagMarkIsExcluded( self, tag_mark ) -> bool:
         
-        return any( self.TagIsExcluded( t ) for t in bookmark.tags )
+        return any( self.TagIsExcluded( t ) for t in tag_mark.tags )
         
 
+
+def ChooseTagMark(
+    duration_ms: int | None,
+    tag_marks: list,
+    tag_mark_mode: int,
+    search_tag_matcher: SearchTagMatcher | None,
+    rng: random.Random | None = None
+) -> TagMark | None:
+    """
+    Picks a random tag mark that has a tag the search is looking for (and none it excludes). None if tag marks are off,
+    the search has no tags to match, or nothing matches.
+    """
+    
+    if rng is None:
+        
+        rng = random
+        
+    
+    if tag_mark_mode != TAG_MARK_MODE_SEARCH or search_tag_matcher is None or search_tag_matcher.IsEmpty():
+        
+        return None
+        
+    
+    if duration_ms is None or duration_ms <= 0:
+        
+        return None
+        
+    
+    candidates = [
+        m for m in tag_marks
+        if 0 <= m.start_ms < duration_ms and search_tag_matcher.TagMarkIsWanted( m ) and not search_tag_matcher.TagMarkIsExcluded( m )
+    ]
+    
+    if len( candidates ) == 0:
+        
+        return None
+        
+    
+    return rng.choice( candidates )
+    
 
 def ChooseStartPoint(
     duration_ms: int | None,
@@ -460,11 +553,15 @@ def ChooseStartPoint(
     random_start_min_duration_s: int | None,
     max_play_s: int | None,
     rng: random.Random | None = None,
-    search_tag_matcher: SearchTagMatcher | None = None
+    search_tag_matcher: SearchTagMatcher | None = None,
+    tag_marks: list | tuple = (),
+    tag_mark_mode: int = TAG_MARK_MODE_OFF
 ) -> tuple[ int, int | None ] | None:
     """
     Like ChooseStartPositionMS, but bookmarks are ( start_ms, play_length_ms or None ) pairs (plain ints are fine too).
-    Returns ( start_ms, play_length_ms from the chosen bookmark or None ), or None for 'start at the beginning as normal'.
+    Returns ( start_ms, play_length_ms from the chosen bookmark/tag mark or None ), or None for 'start at the beginning as normal'.
+    
+    Priority: a tag mark matching the search (if tag mark mode is on) > bookmarks (if the mode is on and the file has valid ones) > random start > beginning.
     """
 
     if rng is None:
@@ -477,6 +574,18 @@ def ChooseStartPoint(
         return None
 
 
+    chosen_tag_mark = ChooseTagMark( duration_ms, tag_marks, tag_mark_mode, search_tag_matcher, rng = rng )
+    
+    if chosen_tag_mark is not None:
+        
+        return ( chosen_tag_mark.start_ms, chosen_tag_mark.length_ms )
+        
+    
+    if bookmark_mode == _LEGACY_BOOKMARK_MODE_SEARCH_TAGS:
+        
+        bookmark_mode = BOOKMARK_MODE_RANDOM
+        
+    
     normalised = []
     
     for b in bookmarks:
@@ -487,15 +596,15 @@ def ChooseStartPoint(
             
         elif isinstance( b, tuple ):
             
-            normalised.append( Bookmark( b[0], b[1] if len( b ) > 1 else None, tuple( b[2] ) if len( b ) > 2 else () ) )
+            normalised.append( Bookmark( b[0], b[1] if len( b ) > 1 else None ) )
             
         else:
             
-            normalised.append( Bookmark( b, None, () ) )
+            normalised.append( Bookmark( b, None ) )
             
         
     
-    if bookmark_mode in ( BOOKMARK_MODE_FIRST, BOOKMARK_MODE_RANDOM, BOOKMARK_MODE_SEARCH_TAGS ):
+    if bookmark_mode in ( BOOKMARK_MODE_FIRST, BOOKMARK_MODE_RANDOM ):
         
         valid_bookmarks = [ b for b in normalised if 0 <= b.start_ms < duration_ms ]
         
@@ -504,26 +613,6 @@ def ChooseStartPoint(
             if bookmark_mode == BOOKMARK_MODE_FIRST:
                 
                 chosen = min( valid_bookmarks, key = lambda b: b.start_ms )
-                
-            elif bookmark_mode == BOOKMARK_MODE_SEARCH_TAGS and search_tag_matcher is not None:
-                
-                # bookmarks tagged with something the search excludes are only used if nothing else is left
-                not_excluded = [ b for b in valid_bookmarks if not search_tag_matcher.BookmarkIsExcluded( b ) ]
-                
-                wanted = [ b for b in not_excluded if search_tag_matcher.BookmarkIsWanted( b ) ]
-                
-                if len( wanted ) > 0:
-                    
-                    chosen = rng.choice( wanted )
-                    
-                elif len( not_excluded ) > 0:
-                    
-                    chosen = rng.choice( not_excluded )
-                    
-                else:
-                    
-                    chosen = rng.choice( valid_bookmarks )
-                    
                 
             else:
                 

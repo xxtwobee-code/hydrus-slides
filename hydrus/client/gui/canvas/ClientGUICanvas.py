@@ -1707,27 +1707,35 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             
             new_options = CG.client_controller.new_options
             
-            ( max_play_s, random_start_min_duration_s, bookmark_mode ) = self.GetSlideshowStartSettings()
+            ( max_play_s, random_start_min_duration_s, bookmark_mode, tag_mark_mode ) = self.GetSlideshowStartSettings()
             
-            bookmarks_ms = []
+            names_to_notes = media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+            
+            bookmarks = []
             
             if bookmark_mode != ClientSlideshowStartPoints.BOOKMARK_MODE_OFF:
                 
                 note_name = new_options.GetString( 'slideshow_bookmarks_note_name' )
                 
-                names_to_notes = media.GetMediaResult().GetNotesManager().GetNamesToNotes()
-                
-                bookmarks_ms = ClientSlideshowStartPoints.ParseBookmarks( names_to_notes.get( note_name, None ) )
+                bookmarks = ClientSlideshowStartPoints.ParseBookmarks( names_to_notes.get( note_name, None ) )
                 
             
+            tag_marks = []
             search_tag_matcher = None
             
-            if bookmark_mode == ClientSlideshowStartPoints.BOOKMARK_MODE_SEARCH_TAGS:
+            if tag_mark_mode != ClientSlideshowStartPoints.TAG_MARK_MODE_OFF:
                 
-                search_tag_matcher = self._GetSearchTagMatcher()
+                note_name = new_options.GetString( 'slideshow_tag_marks_note_name' )
+                
+                tag_marks = ClientSlideshowStartPoints.ParseTagMarks( names_to_notes.get( note_name, None ) )
+                
+                if len( tag_marks ) > 0:
+                    
+                    search_tag_matcher = self._GetSearchTagMatcher()
+                    
                 
             
-            return ClientSlideshowStartPoints.ChooseStartPoint( media.GetDurationMS(), bookmarks_ms, bookmark_mode, random_start_min_duration_s, max_play_s, search_tag_matcher = search_tag_matcher )
+            return ClientSlideshowStartPoints.ChooseStartPoint( media.GetDurationMS(), bookmarks, bookmark_mode, random_start_min_duration_s, max_play_s, search_tag_matcher = search_tag_matcher, tag_marks = tag_marks, tag_mark_mode = tag_mark_mode )
             
         except Exception as e:
             
@@ -1739,7 +1747,7 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
     
     def _GetSearchTagMatcher( self ):
         
-        # personal edit: what the search page this viewer came from is looking for, for tagged bookmarks
+        # personal edit: what the search page this viewer came from is looking for, for tag marks
         
         try:
             
@@ -1829,7 +1837,7 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
     
     def GetSlideshowStartSettings( self ):
         
-        # personal edit: ( clip length s or None, random start min length s or None, bookmark mode )
+        # personal edit: ( clip length s or None, random start min length s or None, bookmark mode, tag mark mode )
         # the base canvas just uses the defaults from options; the browser keeps its own per-window copy
         
         new_options = CG.client_controller.new_options
@@ -1837,7 +1845,8 @@ class Canvas( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         return (
             new_options.GetNoneableInteger( 'slideshow_duration_media_max_play_seconds' ),
             new_options.GetNoneableInteger( 'slideshow_random_start_min_duration_seconds' ),
-            new_options.GetInteger( 'slideshow_bookmark_start_mode' )
+            new_options.GetInteger( 'slideshow_bookmark_start_mode' ),
+            new_options.GetInteger( 'slideshow_tag_mark_start_mode' )
         )
         
     
@@ -4461,7 +4470,7 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
         self._slideshow_is_playing_once_through = CG.client_controller.new_options.GetBoolean( 'slideshow_always_play_duration_media_once_through' )
         
         # personal edit: per-window copies of the start point settings, seeded from the defaults in options
-        ( self._slideshow_start_play_length_s, self._slideshow_random_start_min_duration_s, self._slideshow_bookmark_start_mode ) = Canvas.GetSlideshowStartSettings( self )
+        ( self._slideshow_start_play_length_s, self._slideshow_random_start_min_duration_s, self._slideshow_bookmark_start_mode, self._slideshow_tag_mark_start_mode ) = Canvas.GetSlideshowStartSettings( self )
         
         if first_hash is None:
             
@@ -4639,6 +4648,127 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
         job_status.FinishAndDismiss( 3 )
         
     
+    def _TagMarkCurrentMediaPosition( self ):
+        
+        # personal edit: ask for tags (and optionally a section length), then write a tag mark into the tag marks note
+        
+        if self._current_media is None or not self._current_media.HasDuration():
+            
+            return
+            
+        
+        timestamp_ms = self._media_container.GetCurrentTimestampMS()
+        
+        if timestamp_ms is None:
+            
+            return
+            
+        
+        pretty_time = ClientSlideshowStartPoints.FormatTimestampMS( timestamp_ms )
+        
+        try:
+            
+            tags_text = ClientGUIDialogsQuick.EnterText( self, f'Tags for the tag mark at {pretty_time}, separated by commas. A slideshow uses this tag mark when one of these is in your search.', min_char_width = 48, title = 'Tag mark' )
+            
+        except HydrusExceptions.CancelledException:
+            
+            return
+            
+        
+        tags = ClientSlideshowStartPoints.ParseTagText( tags_text )
+        
+        if len( tags ) == 0:
+            
+            ClientGUIDialogsMessage.ShowWarning( self, 'A tag mark needs at least one tag!' )
+            
+            return
+            
+        
+        try:
+            
+            length_text = ClientGUIDialogsQuick.EnterText( self, f'How long is the section that starts at {pretty_time}? Enter seconds or m:ss. Leave blank to use the slideshow clip length.', allow_blank = True, min_char_width = 24, title = 'Tag mark length' )
+            
+        except HydrusExceptions.CancelledException:
+            
+            return
+            
+        
+        length_ms = None
+        
+        if length_text.strip() != '':
+            
+            length_s = ClientSlideshowStartPoints.ParseSingleDurationS( length_text )
+            
+            if length_s is None:
+                
+                ClientGUIDialogsMessage.ShowWarning( self, 'Could not parse that length! Use seconds (90) or minutes:seconds (1:30).' )
+                
+                return
+                
+            
+            length_ms = length_s * 1000
+            
+        
+        note_name = CG.client_controller.new_options.GetString( 'slideshow_tag_marks_note_name' )
+        
+        names_to_notes = self._current_media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+        
+        new_note = ClientSlideshowStartPoints.AddTagMarkToText( names_to_notes.get( note_name, None ), timestamp_ms, tags, length_ms )
+        
+        hash = self._current_media.GetHash()
+        
+        content_updates = [ ClientContentUpdates.ContentUpdate( HC.CONTENT_TYPE_NOTES, HC.CONTENT_UPDATE_SET, ( hash, note_name, new_note ) ) ]
+        
+        content_update_package = ClientContentUpdates.ContentUpdatePackage.STATICCreateFromContentUpdates( CC.LOCAL_NOTES_SERVICE_KEY, content_updates )
+        
+        # any tag on the mark that the file does not already have gets added to the file too
+        tags_manager = self._current_media.GetTagsManager()
+        
+        existing_tags = set()
+        
+        for tag_display_type in ( ClientTags.TAG_DISPLAY_STORAGE, ClientTags.TAG_DISPLAY_DISPLAY_ACTUAL ):
+            
+            existing_tags.update( tags_manager.GetCurrentAndPending( CC.COMBINED_TAG_SERVICE_KEY, tag_display_type ) )
+            
+        
+        new_tags = []
+        
+        for tag in tags:
+            
+            tag = HydrusTags.CleanTag( tag )
+            
+            if tag != '' and tag not in existing_tags and tag not in new_tags:
+                
+                new_tags.append( tag )
+                
+            
+        
+        
+        if len( new_tags ) > 0:
+            
+            tag_content_updates = [ ClientContentUpdates.ContentUpdate( HC.CONTENT_TYPE_MAPPINGS, HC.CONTENT_UPDATE_ADD, ( tag, { hash } ) ) for tag in new_tags ]
+            
+            tag_content_update_package = ClientContentUpdates.ContentUpdatePackage.STATICCreateFromContentUpdates( CC.DEFAULT_LOCAL_TAG_SERVICE_KEY, tag_content_updates )
+            
+            CG.client_controller.Write( 'content_updates', tag_content_update_package )
+            
+        
+        job_status = ClientThreading.JobStatus()
+        
+        status_text = f'Tag marked {pretty_time} [{", ".join( tags )}]'
+        
+        if len( new_tags ) > 0:
+            
+            status_text += f'\nAdded to file: {", ".join( new_tags )}'
+            
+        
+        job_status.SetStatusText( status_text )
+        
+        CG.client_controller.pub( 'message', job_status )
+        
+        job_status.FinishAndDismiss( 3 )
+        
+    
     def _GetCurrentMediaClipLengthS( self ):
         
         if self._current_media_slideshow_start_position_ms is None:
@@ -4717,6 +4847,10 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
         elif action == CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE:
             
             self._slideshow_bookmark_start_mode = int( data )
+            
+        elif action == CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_TAG_MARK_START_MODE:
+            
+            self._slideshow_tag_mark_start_mode = int( data )
             
         
     
@@ -4881,7 +5015,7 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
     
     def GetSlideshowStartSettings( self ):
         
-        return ( self._slideshow_start_play_length_s, self._slideshow_random_start_min_duration_s, self._slideshow_bookmark_start_mode )
+        return ( self._slideshow_start_play_length_s, self._slideshow_random_start_min_duration_s, self._slideshow_bookmark_start_mode, self._slideshow_tag_mark_start_mode )
         
     
     def SlideshowIsPlayingMediaDurationOnceThrough( self ):
@@ -4941,7 +5075,11 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                 
                 self._BookmarkCurrentMediaPosition()
                 
-            elif action in ( CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_RANDOM_START_MIN_DURATION, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE ):
+            elif action == CAC.SIMPLE_TAG_MARK_CURRENT_MEDIA_POSITION:
+                
+                self._TagMarkCurrentMediaPosition()
+                
+            elif action in ( CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_RANDOM_START_MIN_DURATION, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE, CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_TAG_MARK_START_MODE ):
                 
                 self._SetSlideshowStartSetting( action, command.GetSimpleData() )
                 
@@ -5170,6 +5308,7 @@ class CanvasMediaListBrowser( CanvasMediaListNavigable ):
                 ClientGUIMenus.AppendSeparator( menu )
                 
                 ClientGUIMenus.AppendMenuItem( menu, 'bookmark current video position', 'Add the current playback position of this video/animation to its bookmarks note, for slideshow start points.', self.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_BOOKMARK_CURRENT_MEDIA_POSITION ) )
+                ClientGUIMenus.AppendMenuItem( menu, 'tag mark current video position' + '\u2026', 'Add a tag mark at the current playback position, asking for its tags. A slideshow with tag marks on will start at it when one of its tags is in the search.', self.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_TAG_MARK_CURRENT_MEDIA_POSITION ) )
                 
             
             CGC.core().PopupMenu( self, menu )

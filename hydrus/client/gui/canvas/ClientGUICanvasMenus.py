@@ -9,9 +9,9 @@ from hydrus.client.gui import ClientGUIMenus
 
 def _AppendSlideshowStartPointsMenu( win: CAC.ApplicationCommandProcessorMixin, menu: QW.QMenu, slideshow_start_settings ):
     
-    # personal edit: per-window clip length, random start length and bookmark mode
+    # personal edit: per-window clip length, random start length, bookmark mode and tag mark mode
     
-    ( play_length_s, random_start_min_s, bookmark_mode ) = slideshow_start_settings
+    ( play_length_s, random_start_min_s, bookmark_mode, tag_mark_mode ) = slideshow_start_settings
     
     new_options = CG.client_controller.new_options
     
@@ -36,7 +36,7 @@ def _AppendSlideshowStartPointsMenu( win: CAC.ApplicationCommandProcessorMixin, 
         ClientGUIMenus.AppendMenuItem( menu, 'custom' + '\u2026', custom_description, win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( action, -1 ) )
         
     
-    ClientGUIMenus.AppendMenuLabel( menu, 'clip length for bookmark/random starts:', no_copy = True )
+    ClientGUIMenus.AppendMenuLabel( menu, 'clip length for bookmark/tag mark/random starts:', no_copy = True )
     
     append_duration_choices(
         CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_START_PLAY_LENGTH,
@@ -69,11 +69,25 @@ def _AppendSlideshowStartPointsMenu( win: CAC.ApplicationCommandProcessorMixin, 
     for ( mode, label, description ) in [
         ( ClientSlideshowStartPoints.BOOKMARK_MODE_OFF, 'do not use bookmarks', 'Ignore bookmarks in this window.' ),
         ( ClientSlideshowStartPoints.BOOKMARK_MODE_FIRST, 'start at the first bookmark', 'Videos with bookmarks start at their earliest one.' ),
-        ( ClientSlideshowStartPoints.BOOKMARK_MODE_RANDOM, 'start at a random bookmark', 'Videos with bookmarks start at a random one.' ),
-        ( ClientSlideshowStartPoints.BOOKMARK_MODE_SEARCH_TAGS, 'start at a bookmark matching the search', 'Videos start at a random bookmark tagged with something in the search this viewer came from. If none match, any random bookmark.' )
+        ( ClientSlideshowStartPoints.BOOKMARK_MODE_RANDOM, 'start at a random bookmark', 'Videos with bookmarks start at a random one.' )
     ]:
         
-        ClientGUIMenus.AppendMenuCheckItem( menu, label, description, bookmark_mode == mode, win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE, mode ) )
+        # an old saved 'matching the search' mode now just means random
+        is_checked = bookmark_mode == mode or ( mode == ClientSlideshowStartPoints.BOOKMARK_MODE_RANDOM and bookmark_mode == 3 )
+        
+        ClientGUIMenus.AppendMenuCheckItem( menu, label, description, is_checked, win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_BOOKMARK_START_MODE, mode ) )
+        
+    
+    ClientGUIMenus.AppendSeparator( menu )
+    
+    ClientGUIMenus.AppendMenuLabel( menu, 'tag mark start point:', no_copy = True )
+    
+    for ( mode, label, description ) in [
+        ( ClientSlideshowStartPoints.TAG_MARK_MODE_OFF, 'do not use tag marks', 'Ignore tag marks in this window.' ),
+        ( ClientSlideshowStartPoints.TAG_MARK_MODE_SEARCH, 'start at a tag mark matching the search', 'Videos start at a random tag mark that has a tag from the search this viewer came from, and play just that section (its own length, else the clip length). Videos with no matching tag mark use the bookmark/random rules above.' )
+    ]:
+        
+        ClientGUIMenus.AppendMenuCheckItem( menu, label, description, tag_mark_mode == mode, win.ProcessApplicationCommand, CAC.ApplicationCommand.STATICCreateSimpleCommand( CAC.SIMPLE_SET_THISWINDOW_SLIDESHOW_TAG_MARK_START_MODE, mode ) )
         
     
 
@@ -146,6 +160,6 @@ def AppendSlideshowMenu( win: CAC.ApplicationCommandProcessorMixin, menu: QW.QMe
         
         _AppendSlideshowStartPointsMenu( win, start_points_menu, slideshow_start_settings )
         
-        ClientGUIMenus.AppendMenu( slideshow_menu, start_points_menu, 'bookmark/random start points' )
+        ClientGUIMenus.AppendMenu( slideshow_menu, start_points_menu, 'bookmark/tag mark/random start points' )
         
     
