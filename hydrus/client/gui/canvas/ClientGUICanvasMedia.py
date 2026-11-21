@@ -17,6 +17,7 @@ from hydrus.client import ClientApplicationCommand as CAC
 from hydrus.client import ClientConstants as CC
 from hydrus.client import ClientGlobals as CG
 from hydrus.client import ClientRendering
+from hydrus.client import ClientSlideshowStartPoints
 from hydrus.client import ClientUgoiraHandling
 from hydrus.client.gui import ClientGUIExceptionHandling
 from hydrus.client.gui import ClientGUIFunctions
@@ -774,7 +775,7 @@ class Animation( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
         self._stop_for_slideshow = value
         
     
-    def SetMedia( self, media: ClientMediaSingle.MediaSingle | None, start_paused = False ):
+    def SetMedia( self, media: ClientMediaSingle.MediaSingle | None, start_paused = False, start_position_ms = None ):
         
         if media == self._media:
             
@@ -833,6 +834,12 @@ class Animation( CAC.ApplicationCommandProcessorMixin, QW.QWidget ):
             if self._duration_ms is None and self._frame_durations_ms is not None:
                 
                 self._duration_ms = sum( self._frame_durations_ms )
+                
+            
+            # personal edit: slideshow start point
+            if start_position_ms is not None and start_position_ms > 0 and self._num_frames > 1:
+                
+                self._current_frame_index = ClientSlideshowStartPoints.GetFrameIndexForTimestamp( start_position_ms, self._num_frames, self._duration_ms, self._frame_durations_ms )
                 
             
             CG.client_controller.gui.RegisterAnimationUpdateWindow( self )
@@ -963,6 +970,166 @@ class AnimationBar( QW.QWidget ):
         
         self._currently_in_a_drag = False
         self._it_was_playing_before_drag = False
+        
+        # personal edit: bookmark markers, refreshed from the file's note outside of paint
+        self._bookmark_media = None
+        self._bookmark_note_text = None
+        self._bookmarks = []
+        self._tag_mark_note_text = None
+        self._tag_marks = []
+        self._last_bookmark_check = 0.0
+        
+    
+    def _RefreshBookmarks( self, force = False ):
+        
+        if self._bookmark_media is None:
+            
+            return
+            
+        
+        if not force and not HydrusTime.TimeHasPassedFloat( self._last_bookmark_check + 0.25 ):
+            
+            return
+            
+        
+        self._last_bookmark_check = HydrusTime.GetNowFloat()
+        
+        try:
+            
+            note_text = None
+            tag_mark_note_text = None
+            
+            new_options = CG.client_controller.new_options
+            
+            if new_options.GetBoolean( 'animated_scanbar_show_bookmarks' ):
+                
+                names_to_notes = self._bookmark_media.GetMediaResult().GetNotesManager().GetNamesToNotes()
+                
+                note_text = names_to_notes.get( new_options.GetString( 'slideshow_bookmarks_note_name' ), None )
+                tag_mark_note_text = names_to_notes.get( new_options.GetString( 'slideshow_tag_marks_note_name' ), None )
+                
+            
+        except Exception as e:
+            
+            note_text = None
+            tag_mark_note_text = None
+            
+        
+        if force or note_text != self._bookmark_note_text or tag_mark_note_text != self._tag_mark_note_text:
+            
+            self._bookmark_note_text = note_text
+            self._bookmarks = ClientSlideshowStartPoints.ParseBookmarks( note_text )
+            
+            self._tag_mark_note_text = tag_mark_note_text
+            self._tag_marks = ClientSlideshowStartPoints.ParseTagMarks( tag_mark_note_text )
+            
+            self.update()
+            
+        
+    
+    def _DrawBookmarks( self, painter, my_width, my_height ):
+        
+        if self._duration_ms is None:
+            
+            return
+            
+        
+        # bookmarks are orange and full height; tag marks are teal and only fill the bottom half, so the two can sit on top of each other
+        for ( marks, marker_colour, top, height ) in [
+            ( self._bookmarks, QG.QColor( 235, 130, 20 ), 0, my_height ),
+            ( self._tag_marks, QG.QColor( 30, 170, 170 ), my_height // 2, my_height - ( my_height // 2 ) )
+        ]:
+            
+            span_colour = QG.QColor( marker_colour )
+            span_colour.setAlpha( 70 )
+            
+            marker_width = 2
+            
+            for mark in marks:
+                
+                ( start_ms, length_ms ) = ( mark[ 0 ], mark[ 1 ] )
+                
+                if start_ms >= self._duration_ms:
+                    
+                    continue
+                    
+                
+                start_x = self._GetXFromTimestamp( start_ms )
+                
+                if length_ms is not None and self._show_gubbins:
+                    
+                    end_x = self._GetXFromTimestamp( min( start_ms + length_ms, self._duration_ms ) )
+                    
+                    if end_x > start_x:
+                        
+                        painter.fillRect( start_x, top, end_x - start_x, height, span_colour )
+                        
+                    
+                
+                x = max( 0, min( start_x - ( marker_width // 2 ), my_width - marker_width ) )
+                
+                painter.fillRect( x, top, marker_width, height, marker_colour )
+                
+            
+        
+    
+    def _GetBookmarkTooltipAt( self, x ):
+        
+        if ( len( self._bookmarks ) == 0 and len( self._tag_marks ) == 0 ) or self._duration_ms is None:
+            
+            return None
+            
+        
+        lines = []
+        
+        for ( label, marks ) in [ ( 'bookmark', self._bookmarks ), ( 'tag mark', self._tag_marks ) ]:
+            
+            for m in marks:
+                
+                if m.start_ms >= self._duration_ms:
+                    
+                    continue
+                    
+                
+                start_x = self._GetXFromTimestamp( m.start_ms )
+                
+                end_x = start_x
+                
+                if m.length_ms is not None:
+                    
+                    end_x = self._GetXFromTimestamp( min( m.start_ms + m.length_ms, self._duration_ms ) )
+                    
+                
+                if start_x - 4 <= x <= max( end_x, start_x + 4 ):
+                    
+                    lines.append( label + ' ' + ClientSlideshowStartPoints.FormatTagMark( m.start_ms, m.length_ms, getattr( m, 'tags', () ) ) )
+                    
+                
+            
+        
+        return '\n'.join( lines ) if len( lines ) > 0 else None
+        
+    
+    def event( self, event ):
+        
+        # personal edit: hover a bookmark or tag mark marker to see its time, length and tags
+        if event.type() == QC.QEvent.Type.ToolTip:
+            
+            text = self._GetBookmarkTooltipAt( event.pos().x() )
+            
+            if text is None:
+                
+                QW.QToolTip.hideText()
+                
+            else:
+                
+                QW.QToolTip.showText( event.globalPos(), text, self )
+                
+            
+            return True
+            
+        
+        return super().event( event )
         
     
     def _DoAnimationStatusUpdate( self ):
@@ -1108,6 +1275,8 @@ class AnimationBar( QW.QWidget ):
                     
                 
             
+            self._DrawBookmarks( painter, my_width, my_height )
+            
             animated_scanbar_nub_width = CG.client_controller.new_options.GetInteger( 'animated_scanbar_nub_width' )
             
             num_frames_are_useful = self._num_frames is not None and self._num_frames > 1
@@ -1159,6 +1328,10 @@ class AnimationBar( QW.QWidget ):
                     
                 
             
+        else:
+            
+            self._DrawBookmarks( painter, my_width, my_height )
+            
         
         #
         
@@ -1209,6 +1382,12 @@ class AnimationBar( QW.QWidget ):
         
         self._media_window = None
         self._show_gubbins = True
+        
+        self._bookmark_media = None
+        self._bookmark_note_text = None
+        self._bookmarks = []
+        self._tag_mark_note_text = None
+        self._tag_marks = []
         
         CG.client_controller.gui.UnregisterAnimationUpdateWindow( self )
         
@@ -1322,6 +1501,8 @@ class AnimationBar( QW.QWidget ):
         
         self._media_window = media_window
         
+        self._bookmark_media = media
+        
         num_frames = media.GetNumFrames()
         
         if num_frames is None:
@@ -1350,6 +1531,8 @@ class AnimationBar( QW.QWidget ):
         
         self._show_gubbins = True
         
+        self._RefreshBookmarks( force = True )
+        
         self._DoAnimationStatusUpdate()
         
         self.update()
@@ -1368,6 +1551,8 @@ class AnimationBar( QW.QWidget ):
             
             return
             
+        
+        self._RefreshBookmarks()
         
         self._DoAnimationStatusUpdate()
         
@@ -1453,6 +1638,7 @@ class MediaContainer( QW.QWidget ):
         self._deferred_set_media_call: HydrusData.Call = HydrusData.EMPTY_CALL
         self._show_action = CC.MEDIA_VIEWER_ACTION_DO_NOT_SHOW
         self._start_paused = False
+        self._start_position_ms = None
         self._start_with_embed = False
         
         self._current_zoom = 1.0
@@ -1733,7 +1919,7 @@ class MediaContainer( QW.QWidget ):
                     self._media_window = self._animation_window
                     
                 
-                self._media_window.SetMedia( self._media, start_paused = self._start_paused )
+                self._media_window.SetMedia( self._media, start_paused = self._start_paused, start_position_ms = self._start_position_ms )
                 
                 self._media_window.lower()
                 
@@ -1754,7 +1940,7 @@ class MediaContainer( QW.QWidget ):
                     
                     self._media_window.SetMute( self._GetCurrentMuteState() )
                     
-                    self._media_window.SetMedia( self._media, start_paused = self._start_paused )
+                    self._media_window.SetMedia( self._media, start_paused = self._start_paused, start_position_ms = self._start_position_ms )
                     
                 
             elif self._show_action == CC.MEDIA_VIEWER_ACTION_SHOW_WITH_QTMEDIAPLAYER:
@@ -1769,7 +1955,7 @@ class MediaContainer( QW.QWidget ):
                     
                 
             
-            self._media_window.SetMedia( self._media, start_paused = self._start_paused )
+            self._media_window.SetMedia( self._media, start_paused = self._start_paused, start_position_ms = self._start_position_ms )
             
             self._media_window.lower()
             
@@ -2198,6 +2384,27 @@ class MediaContainer( QW.QWidget ):
     def CurrentlyPresentingMediaWithDuration( self ):
         
         return isinstance( self._media_window, ( Animation, ClientGUIMPV.MPVWidget, ClientGUIQtMediaPlayer.QtMediaPlayer ) )
+        
+    
+    def GetCurrentTimestampMS( self ):
+        
+        # personal edit: used for bookmarking
+        
+        if not self.CurrentlyPresentingMediaWithDuration():
+            
+            return None
+            
+        
+        status = self._media_window.GetAnimationBarStatus()
+        
+        if status is None:
+            
+            return None
+            
+        
+        ( current_frame_index, current_timestamp_ms, paused, buffer_indices ) = status
+        
+        return current_timestamp_ms
         
     
     def DoEdgePan( self, pan_type: int ):
@@ -2685,14 +2892,16 @@ class MediaContainer( QW.QWidget ):
         self._static_image_window.SetBackgroundColourGenerator( self._background_colour_generator )
         
     
-    def SetMedia( self, media: ClientMediaSingle.MediaSingle, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = None ):
+    def SetMedia( self, media: ClientMediaSingle.MediaSingle, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = None, start_position_ms = None ):
         
         if not self.ReadyToSwitchMedia():
             
-            self._deferred_set_media_call = HydrusData.Call( self.SetMedia, media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused )
+            self._deferred_set_media_call = HydrusData.Call( self.SetMedia, media, maintain_zoom, maintain_zoom_type, maintain_pan, start_paused = start_paused, start_position_ms = start_position_ms )
             
             return
             
+        
+        self._start_position_ms = start_position_ms
         
         previous_media = self._media
         
